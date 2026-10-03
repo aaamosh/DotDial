@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "dot": {
+    "url": "",
+    "displayName": "My dot",
+    "expectedEmail": ""
+  },
+  "general": {
+    "startAtLogin": false,
+    "hotkey": "CommandOrControl+Alt+Space"
+  },
+  "audio": {
+    "bufferMs": 0,
+    "microphoneDeviceId": "default",
+    "outputDeviceId": "default",
+    "sounds": true,
+    "soundVolume": 0.55,
+    "microphoneInitiallyMuted": false,
+    "speakersInitiallyMuted": false
+  },
+  "wakeWord": {
+    "enabled": false,
+    "phrase": "Hey Dot",
+    "sensitivity": 6,
+    "modelPath": "",
+    "pythonPath": "python3"
+  },
+  "recording": {
+    "enabled": true,
+    "maxMegabytes": 200
+  },
+  "appearance": {
+    "theme": "system",
+    "panelOpacity": 0.86,
+    "showPanel": true,
+    "language": "en"
+  },
+  "network": {
+    "signalingProxy": "",
+    "signalingLauncher": [],
+    "mediaLauncher": []
+  },
+  "call": {
+    "maxMinutes": 60
+  }
+}

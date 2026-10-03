@@ -1,0 +1,273 @@
+export class CallController {
+  constructor({ makeSession, native, expectedProfile, readJournal, writeJournal, publish, cue = async () => {} }) {
+    Object.assign(this, { makeSession, native, expectedProfile, readJournal, writeJournal, publish, cue });
+    this.state = 'ready';
+    this.metrics = {};
+    this.pending = null;
+    this.stopping = null;
+    this.session = null;
+    this.peer = null;
+    this.capture = null;
+    this.cancelled = false;
+    this.microphonePending = null;
+    this.recoveryPending = null;
+  }
+
+  snapshot() {
+    return { state: this.state, local_listening: !!this.capture,
+      microphone_muted: this.state === 'active' && !this.capture,
+      microphone_changing: !!this.microphonePending, ...this.metrics };
+  }
+
+  report() { this.publish(this.snapshot()); }
+
+  wake({ microphone = true, maxSeconds = 600 } = {}) {
+    if (this.pending || this.stopping || this.recoveryPending || !['ready', 'recovery_required'].includes(this.state)) return { status: this.state };
+    const journal = this.readJournal();
+    if (journal && journal.phase !== 'closed' && !journal.callId) {
+      this.state = 'recovery_required'; this.report();
+      return { status: 'creation_outcome_unknown' };
+    }
+    this.state = 'starting';
+    this.cancelled = false;
+    this.callAttempt = true;
+    void this.cue('calling');
+    this.startedAt = performance.now();
+    this.metrics = { input_samples: 0, input_peak: 0, remote_audio_frames: 0, remote_peak: 0, event_count: 0, timings_ms: {} };
+    this.report();
+    this.pending = this.start(microphone, maxSeconds).catch(async err => {
+      this.metrics.stage = err.stage || this.metrics.stage;
+      this.metrics.last_error = err.code || 'call_start_failed';
+      this.metrics.last_http_status = err.status || null;
+      this.metrics.api_reason = err.apiReason || null;
+      this.metrics.start_error = { stage: this.metrics.stage, code: this.metrics.last_error,
+        http_status: this.metrics.last_http_status, api_reason: this.metrics.api_reason };
+      await this.cleanup();
+    }).finally(() => { this.pending = null; });
+    return { status: 'accepted_wake' };
+  }
+
+  check() { if (this.cancelled) throw Object.assign(new Error('cancelled'), { code: 'cancelled' }); }
+
+  async step(name, action, { announce = true } = {}) {
+    const metrics = this.metrics;
+    if (announce) { metrics.stage = name; this.report(); }
+    const started = performance.now();
+    try { return await action(); }
+    catch (error) { error.stage ??= name; throw error; }
+    finally {
+      metrics.timings_ms[name] = Math.round(performance.now() - started);
+      if (this.metrics === metrics) this.report();
+    }
+  }
+
+  async start(microphone, maxSeconds) {
+    const journal = this.readJournal();
+    if (journal && journal.phase !== 'closed') {
+      const result = await this.step('recovery', () => this.recoverSavedCall());
+      if (result.status !== 'ready') throw Object.assign(new Error(result.status), { code: result.status });
+      this.check();
+    }
+    this.disconnectedAt = null;
+    const s = this.makeSession(); this.session = s;
+    if (s.timings) this.metrics.signaling_ms = s.timings;
+    this.metrics.stage = 'prepare'; this.report();
+    this.peer = new this.native.LiveWebRtcPeer(
+      (err) => { if (!err) this.metrics.event_count++; },
+      (err, level) => {
+        if (!err && Number.isFinite(Number(level))) {
+          this.metrics.remote_peak = Math.max(this.metrics.remote_peak, Number(level));
+          if (Number(level) > .002) this.metrics.remote_audio_frames++;
+        }
+      },
+      () => { this.metrics.last_error = 'media_connection_failed'; void this.stop(); }
+    );
+    // Local offer preparation uses generated silence, with no microphone or
+    // cloud call. Overlap it with account/profile verification, then require
+    // both to succeed before the one-shot server allocation.
+    const [profile, offer] = await Promise.all([
+      this.step('profile', () => s.resolveProfile(), { announce: false }),
+      this.step('offer', () => this.peer.createOffer(), { announce: false }),
+    ]);
+    this.check();
+    if (this.expectedProfile && profile.profileId !== this.expectedProfile) throw Object.assign(new Error('profile mismatch'), { code: 'dot_profile_mismatch', stage: 'profile' });
+    this.writeJournal({ phase: 'creating', profileId: s.profileId, accountId: s.accountId });
+    let answer;
+    try { answer = await this.step('create', () => s.create(offer)); }
+    catch (err) {
+      if (!s.callId && err.status >= 400 && err.status < 500) this.writeJournal({ phase: 'closed' });
+      throw err;
+    }
+    this.writeJournal({ phase: 'created', profileId: s.profileId, accountId: s.accountId, callId: s.callId });
+    this.check();
+    await this.step('accept_answer', () => this.peer.acceptAnswer(answer.answerSdp)); this.check();
+    await this.step('attach', () => s.attach()); this.check();
+    await this.step('media_open', () => this.peer.waitForOpen(20000)); this.check();
+    this.writeJournal({ phase: 'active', profileId: s.profileId, accountId: s.accountId, callId: s.callId });
+    await this.step('connected_cue', () => this.cue('connected')); this.check();
+    if (microphone && this.peer.startMicrophone) {
+      this.capture = await this.step('microphone', () => this.peer.startMicrophone()); this.check();
+      this.metrics.microphone_settings = this.peer.microphoneSettings;
+    } else if (microphone) {
+      this.capture = new this.native.AudioCapture(16000, (err, samples) => {
+        if (err || this.cancelled || this.state !== 'active') return;
+        this.metrics.input_samples += samples.length;
+        for (const v of samples) this.metrics.input_peak = Math.max(this.metrics.input_peak, Math.abs(v));
+        try { this.peer?.pushAudio(samples); } catch { void this.stop(); }
+      });
+    }
+    this.state = 'active';
+    this.metrics.stage = 'active';
+    this.metrics.startup_ms = Math.round(performance.now() - this.startedAt);
+    this.report();
+    this.timer = setTimeout(() => void this.stop(), maxSeconds * 1000);
+    this.meter = setInterval(() => void this.measure(), 2000);
+    void this.measure();
+  }
+
+  async measure() {
+    if (this.measuring || this.state !== 'active') return;
+    this.measuring = true;
+    const peer = this.peer;
+    try {
+      if (peer?.getStats) {
+        const media = await peer.getStats();
+        if (peer !== this.peer || this.state !== 'active') return;
+        this.metrics.media = media;
+        this.metrics.event_count = media.event_count || 0;
+        this.metrics.remote_audio_frames = media.packetsReceived || 0;
+        this.metrics.remote_peak = Math.max(this.metrics.remote_peak, media.audioLevel || 0);
+        this.metrics.input_peak = Math.max(this.metrics.input_peak, media.inputAudioLevel || 0);
+        this.metrics.input_samples = this.capture ? Math.round((media.inputAudioDuration || 0) * (peer.microphoneSettings?.sampleRate || 48000)) : 0;
+        if (media.connection_state === 'disconnected') this.disconnectedAt ??= Date.now();
+        else this.disconnectedAt = null;
+        if (media.connection_state === 'failed' || media.playback_error || (this.disconnectedAt && Date.now() - this.disconnectedAt > 15000)) {
+          this.metrics.last_error = media.playback_error ? 'audio_playback_failed' : 'media_connection_failed';
+          void this.stop();
+        }
+      }
+      this.report();
+    } catch {
+      if (peer === this.peer && this.state === 'active') this.metrics.media_stats_unavailable = true;
+    } finally { this.measuring = false; }
+  }
+
+  setMicrophoneEnabled(enabled) {
+    if (this.state !== 'active' || this.cancelled) return { status: 'no_active_call' };
+    if (this.microphonePending) return { status: 'microphone_busy' };
+    if (!!this.capture === enabled) return { status: enabled ? 'microphone_on' : 'microphone_off' };
+    const peer = this.peer;
+    if (!peer?.startMicrophone || !peer?.stopMicrophone) return { status: 'microphone_control_unavailable' };
+    delete this.metrics.microphone_error;
+    this.microphonePending = (async () => {
+      if (enabled) {
+        const capture = await peer.startMicrophone();
+        if (peer !== this.peer || this.cancelled || this.state !== 'active') {
+          capture.stop();
+          return;
+        }
+        this.capture = capture;
+        this.metrics.microphone_settings = peer.microphoneSettings;
+      } else {
+        await peer.stopMicrophone();
+        if (peer !== this.peer) return;
+        this.capture = null;
+      }
+      if (this.metrics.media) this.metrics.media.microphone_active = !!this.capture;
+    })().catch(() => {
+      if (peer === this.peer && this.state === 'active') this.metrics.microphone_error = 'microphone_change_failed';
+    }).finally(() => {
+      this.microphonePending = null;
+      this.report();
+    });
+    this.report();
+    return { status: enabled ? 'unmuting_microphone' : 'muting_microphone' };
+  }
+
+  stop() {
+    this.cancelled = true;
+    void this.cue('silence');
+    try { this.capture?.stop(); } catch {}
+    this.capture = null;
+    const peer = this.peer; this.peer = null;
+    let closing;
+    try { closing = Promise.resolve(peer?.close()).catch(() => {}); } catch {}
+    if (this.stopping) return this.stopping;
+    this.state = 'stopping'; this.report();
+    this.stopping = (async () => {
+      await this.pending;
+      await this.recoveryPending;
+      await closing;
+      await this.microphonePending;
+      await this.cleanup();
+    })().finally(() => { this.stopping = null; });
+    return this.stopping;
+  }
+
+  async cleanup() {
+    clearTimeout(this.timer); clearInterval(this.meter);
+    try { this.capture?.stop(); } catch {}
+    this.capture = null;
+    const peer = this.peer; this.peer = null;
+    // Stop local playback and input even if the remote service is unreachable.
+    try { await peer?.close(); } catch {}
+    if (this.callAttempt) {
+      this.callAttempt = false;
+      await this.cue('ended');
+    }
+    const s = this.session; this.session = null;
+    if (s?.callId) {
+      this.writeJournal({ phase: 'stopping', profileId: s.profileId, accountId: s.accountId, callId: s.callId });
+      await this.closeRemote(s);
+    }
+    const j = this.readJournal();
+    this.state = j && j.phase !== 'closed' ? 'recovery_required' : 'ready';
+    this.report();
+  }
+
+  async closeRemote(session) {
+    try {
+      await session.stop();
+      this.metrics.stop_result = 'confirmed';
+    } catch (err) {
+      this.metrics.stop_error = { code: err.code || 'remote_stop_failed',
+        http_status: err.status || null, api_reason: err.apiReason || null };
+      // The exact call is already absent. Use the same terminal semantics
+      // during ordinary cleanup and restart recovery.
+      if (![404, 410].includes(err.status)) {
+        this.metrics.last_error = 'remote_stop_unconfirmed';
+        return false;
+      }
+      this.metrics.stop_result = 'already_closed';
+    }
+    this.writeJournal({ phase: 'closed' });
+    return true;
+  }
+
+  async recoverSavedCall() {
+    const j = this.readJournal();
+    if (!j || j.phase === 'closed') return { status: 'ready' };
+    if (!j.callId) return { status: 'creation_outcome_unknown' };
+    const s = this.makeSession();
+    s.profileId = j.profileId; s.accountId = j.accountId; s.callId = j.callId;
+    return { status: await this.closeRemote(s) ? 'ready' : 'remote_stop_unconfirmed' };
+  }
+
+  recover() {
+    if (this.recoveryPending) return this.recoveryPending;
+    if (this.pending || this.stopping || this.peer || this.capture) return Promise.resolve({ status: 'busy' });
+    this.recoveryPending = this.recoverSavedCall().then(result => {
+      this.state = result.status === 'ready' ? 'ready' : 'recovery_required';
+      if (result.status === 'ready') this.metrics = { stage: 'ready' };
+      else this.metrics.last_error = result.status;
+      this.report();
+      return result;
+    }).catch(() => {
+      this.state = 'recovery_required';
+      this.metrics.last_error = 'recovery_failed';
+      this.report();
+      return { status: 'recovery_failed' };
+    }).finally(() => { this.recoveryPending = null; });
+    return this.recoveryPending;
+  }
+}

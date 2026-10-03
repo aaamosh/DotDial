@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.venv/
+__pycache__/
+*.pyc
+*.log
+.env*
+!.env.example
+profile/
+state/
+models/
+*.wav
+!src/sounds/*.wav
+*.wav.part
+*.sock
+.DS_Store

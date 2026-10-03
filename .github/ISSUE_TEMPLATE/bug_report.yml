@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible DotDial problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not include passwords, access tokens, cookies, account emails, dot URLs/IDs, browser profiles, or call recordings. Review logs and screenshots before attaching them.
+  - type: input
+    id: version
+    attributes:
+      label: DotDial version
+      placeholder: 0.1.0-beta.1
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Linux distribution and version
+      placeholder: Ubuntu 24.04 x86_64
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a test account or the synthetic demo where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Did this use a live ChatGPT call?
+      options:
+        - No, demo or local setup only
+        - Yes, live call (do not include account identifiers)
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I reviewed attachments and removed account details, local usernames/paths, credentials, and audio.
+          required: true

@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dotdial:config:v1",
+  "title": "DotDial configuration",
+  "description": "Version 1 user settings. Never put passwords, API keys, access tokens, cookies, or proxy credentials in this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "dot", "general", "audio", "wakeWord", "recording", "appearance", "network", "call"],
+  "properties": {
+    "version": { "const": 1 },
+    "dot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["url", "displayName", "expectedEmail"],
+      "properties": {
+        "url": {
+          "type": "string", "maxLength": 256,
+          "pattern": "^(?:|https://chatgpt\\.com/dots/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$",
+          "default": "",
+          "description": "Empty until selected; otherwise an HTTPS ChatGPT dot URL."
+        },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80, "default": "My dot" },
+        "expectedEmail": {
+          "type": "string", "maxLength": 254,
+          "pattern": "^(?:|[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+)$",
+          "default": "",
+          "description": "Optional account check. This identifies the account; it is not a credential."
+        }
+      }
+    },
+    "general": {
+      "type": "object", "additionalProperties": false,
+      "required": ["startAtLogin", "hotkey"],
+      "properties": {
+        "startAtLogin": { "type": "boolean", "default": false },
+        "hotkey": { "type": "string", "minLength": 1, "maxLength": 96, "pattern": "^(?:(?:CommandOrControl|CmdOrCtrl|Control|Ctrl|Command|Cmd|Option|Alt|AltGr|Shift|Super|Meta)\\+)+(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Plus|Space|Tab|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|VolumeUp|VolumeDown|VolumeMute|MediaNextTrack|MediaPreviousTrack|MediaStop|MediaPlayPause)$", "default": "CommandOrControl+Alt+Space" }
+      }
+    },
+    "audio": {
+      "type": "object", "additionalProperties": false,
+      "required": ["bufferMs", "microphoneDeviceId", "outputDeviceId", "sounds", "soundVolume", "microphoneInitiallyMuted", "speakersInitiallyMuted"],
+      "properties": {
+        "bufferMs": { "type": "integer", "minimum": 0, "maximum": 2000, "default": 0, "description": "0 selects the adapter's default buffer policy." },
+        "microphoneDeviceId": { "type": "string", "minLength": 1, "maxLength": 512, "default": "default" },
+        "outputDeviceId": { "type": "string", "minLength": 1, "maxLength": 512, "default": "default" },
+        "sounds": { "type": "boolean", "default": true },
+        "soundVolume": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.55 },
+        "microphoneInitiallyMuted": { "type": "boolean", "default": false },
+        "speakersInitiallyMuted": { "type": "boolean", "default": false }
+      }
+    },
+    "wakeWord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "phrase", "sensitivity", "modelPath", "pythonPath"],
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "phrase": { "type": "string", "minLength": 1, "maxLength": 48, "default": "Hey Dot" },
+        "sensitivity": { "type": "integer", "minimum": 1, "maximum": 10, "default": 6 },
+        "modelPath": { "type": "string", "default": "", "description": "Empty disables a model override; non-empty paths must be absolute." },
+        "pythonPath": { "type": "string", "minLength": 1, "maxLength": 4096, "default": "python3" }
+      }
+    },
+    "recording": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "maxMegabytes"],
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "maxMegabytes": { "type": "integer", "minimum": 1, "maximum": 8192, "default": 200 }
+      }
+    },
+    "appearance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["theme", "panelOpacity", "showPanel", "language"],
+      "properties": {
+        "theme": { "enum": ["system", "light", "dark"], "default": "system" },
+        "panelOpacity": { "type": "number", "minimum": 0.2, "maximum": 1, "default": 0.86 },
+        "showPanel": { "type": "boolean", "default": true },
+        "language": { "type": "string", "const": "en", "default": "en" }
+      }
+    },
+    "network": {
+      "type": "object", "additionalProperties": false,
+      "required": ["signalingProxy", "signalingLauncher", "mediaLauncher"],
+      "properties": {
+        "signalingProxy": {
+          "type": "string", "maxLength": 2048,
+          "pattern": "^(?:|(?:https?|socks[45])://[^/@?#]+(?::[0-9]{1,5})?/?|(?:https?|socks[45])://\\[[0-9a-fA-F:]+\\](?::[0-9]{1,5})?/?|(?:https?|socks[45])://[^/:?#]+(?::[0-9]{1,5})?)$",
+          "default": "",
+          "description": "Optional credential-free proxy URL. Credentials must be configured in an operating-system credential manager."
+        },
+        "signalingLauncher": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 2048 }, "default": [], "description": "Executable and fixed argument prefix; launched without a shell. Never embed secrets." },
+        "mediaLauncher": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 2048 }, "default": [], "description": "Executable and fixed argument prefix; launched without a shell. Never embed secrets." }
+      }
+    },
+    "call": {
+      "type": "object", "additionalProperties": false,
+      "required": ["maxMinutes"],
+      "properties": {
+        "maxMinutes": { "type": "integer", "minimum": 1, "maximum": 1440, "default": 60 }
+      }
+    }
+  }
+}
