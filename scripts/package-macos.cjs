@@ -136,6 +136,11 @@ function writeCliLauncher(appSource) {
   return launcher;
 }
 
+async function prepareAppSource({ buildPath }) {
+  normalizeSource(buildPath);
+  writeCliLauncher(buildPath);
+}
+
 function verifyBundle(bundle, manifest) {
   const contents = path.join(bundle, 'Contents');
   const executable = path.join(contents, 'MacOS', APP_NAME);
@@ -204,9 +209,7 @@ async function main(argv = process.argv.slice(2)) {
       extendInfo: { NSMicrophoneUsageDescription: MICROPHONE_DESCRIPTION, LSMinimumSystemVersion: MINIMUM_MACOS },
       extendHelperInfo: { NSMicrophoneUsageDescription: MICROPHONE_DESCRIPTION, LSMinimumSystemVersion: MINIMUM_MACOS },
       osxSign: signingOptions(),
-      afterCopy: [(buildPath, _version, _platform, _arch, callback) => {
-        try { normalizeSource(buildPath); writeCliLauncher(buildPath); callback(); } catch (error) { callback(error); }
-      }],
+      afterCopy: [prepareAppSource],
     });
     if (results.length !== 1) throw Error('Expected one native macOS application bundle.');
     const bundle = path.join(results[0], `${APP_NAME}.app`);
@@ -247,4 +250,4 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) main().catch(error => { console.error('macOS packaging failed:', error.stack || error.message); process.exitCode = 1; });
-module.exports = { main, validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, verifyBundle, sha256, BUNDLE_ID, MINIMUM_MACOS, MICROPHONE_DESCRIPTION };
+module.exports = { main, validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, prepareAppSource, verifyBundle, sha256, BUNDLE_ID, MINIMUM_MACOS, MICROPHONE_DESCRIPTION };

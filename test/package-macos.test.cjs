@@ -5,8 +5,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { pathToFileURL } = require('node:url');
 const test = require('node:test');
-const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, BUNDLE_ID } = require('../scripts/package-macos.cjs');
+const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, BUNDLE_ID } = require('../scripts/package-macos.cjs');
 const pkg = { name: 'dotdial', productName: 'DotDial', version: '0.1.0-beta.2', devDependencies: { electron: '44.5.1', '@electron/packager': '20.3.0' } };
 const sha = 'a'.repeat(40);
 
@@ -61,7 +62,7 @@ test('ad-hoc signing is mandatory and needs no credentials or timestamp service'
   assert.equal(options.optionsForFile('/tmp/DotDial.app/Contents/Frameworks/DotDial Helper (Renderer).app').entitlements, undefined);
 });
 
-test('bundled CLI resolves a path containing spaces without system Node or shell utilities', t => {
+test('the pinned Packager hook prepares a Node-independent CLI that handles spaces', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-cli-launcher-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const bundle = path.join(directory, 'Path with spaces', 'DotDial.app');
@@ -70,8 +71,14 @@ test('bundled CLI resolves a path containing spaces without system Node or shell
   const emptyPath = path.join(directory, 'empty-path');
   for (const entry of [appSource, macos, emptyPath]) fs.mkdirSync(entry, { recursive: true });
   fs.writeFileSync(path.join(macos, 'DotDial'), '#!/bin/sh\nprintf \'%s\\n\' "$ELECTRON_RUN_AS_NODE" "$@"\n', { mode: 0o755 });
-  const launcher = writeCliLauncher(appSource);
-  assert.equal(path.basename(launcher), 'dotdial-cli');
+  const sourceFile = path.join(appSource, 'package.json');
+  fs.writeFileSync(sourceFile, '{}', { mode: 0o600 });
+  const hooksFile = path.join(path.dirname(require.resolve('@electron/packager')), 'hooks.js');
+  const { runHooks } = await import(pathToFileURL(hooksFile).href);
+  await runHooks([prepareAppSource], { buildPath: appSource, electronVersion: '44.5.1', platform: 'darwin', arch: 'arm64' });
+  assert.equal(fs.statSync(sourceFile).mode & 0o777, 0o644);
+  assert.equal(fs.statSync(path.join(macos, 'DotDial')).mode & 0o777, 0o755, 'source normalization must not alter the runtime executable');
+  const launcher = path.join(bundle, 'Contents', 'Resources', 'dotdial-cli');
   const result = spawnSync(launcher, ['config', 'set', 'dot.displayName', '"quoted name with spaces"'], {
     encoding: 'utf8', env: { PATH: emptyPath }, timeout: 5000,
   });
