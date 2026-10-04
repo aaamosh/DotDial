@@ -36,6 +36,8 @@ Love the nostalgia? Leave it on. Prefer something else? In **Settings → Voice*
 
 These previews use the local synthetic demo, so no real account or conversation is shown.
 
+[Watch the 18-second UI preview](docs/media/dotdial-preview-18s.mp4) · [Download the share card](docs/media/dotdial-social-card.png) · [Media credits](docs/media/README.md)
+
 ![Floating call panel: microphone, speakers, and hang up](docs/images/panel.png)
 
 ![DotDial settings](docs/images/settings.png)

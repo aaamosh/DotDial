@@ -1,6 +1,33 @@
-# Launch drafts
+# Launch kit
 
-English copy ideas for a DotDial release or community post. They are drafts only; no community posts have been sent. Check the current rules for each community before posting.
+Factual copy and reusable media for the public Linux beta. Each platform's current rules still apply. A submission or editorial pitch is not an accepted listing.
+
+## Scope to preserve
+
+- Linux x86_64 beta; an existing ChatGPT dot is required.
+- Unofficial community client using internal ChatGPT web routes; compatibility may change.
+- Optional offline **English wake-word recognition**, off by default. Calls themselves are not offline.
+- Local saved-reply playback requires recording to be enabled.
+- No API key is required by DotDial. macOS is still under development; do not advertise a released Mac build.
+
+## Reusable media
+
+- [1200 × 630 share card](media/dotdial-social-card.png)
+- [18-second MP4 preview with the 1997 modem recording](media/dotdial-preview-18s.mp4)
+- [Source provenance, credits and alt text](media/README.md)
+
+The media shows synthetic UI, not a live conversation. Preserve that label when sharing.
+
+## Short original X post
+
+DotDial is out: an MIT Linux tray app to call your existing ChatGPT dot by hotkey or optional wake word. Replay saved replies, with a real 1997 modem handshake while connecting. Built with Codex. Unofficial beta.
+https://github.com/aaamosh/DotDial
+
+Check [X automation rules](https://help.x.com/en/rules-and-policies/x-automation) before posting. They require the API for automated publishing and constrain automated mentions/replies. This draft deliberately has no unsolicited mentions.
+
+## OpenAI community
+
+The [Community category](https://community.openai.com/c/community/21) welcomes relevant projects. Use one substantive introduction with the actual use case, beta limitations, release link and a specific request for Linux desktop feedback. Do not repeat the same promotion across threads. The [official Showcase form](https://openai.com/form/showcase-submission/) also accepts projects built with Codex; submission requires the program agreement.
 
 ## Reddit: r/linuxapps
 
@@ -30,19 +57,9 @@ This is an unofficial Linux x86_64 beta, and its call flow depends on internal C
 
 Project and privacy notes: https://github.com/aaamosh/DotDial
 
-## Show HN
+## Hacker News
 
-**Title:** Show HN: DotDial — a hands-free Linux tray phone for your ChatGPT dot
-
-**Body:**
-
-DotDial is a small Linux app for talking to a dot you already use in ChatGPT. I wanted to start a conversation while cooking or relaxing away from the keyboard, so I added an optional local “Hey Dot” wake phrase, separate mic and speaker controls, and a compact floating call panel. You can keep the conversation going without the ChatGPT or Codex desktop app; DotDial uses its own sign-in window and your existing account.
-
-When the speakers are muted and recording is enabled, replies are kept as local audio and replayed oldest first, like a tiny answering machine. A reply is deleted only after full playback. The default connection sound is an authentic recording of a 1997 modem handshake; telephone tones and custom local MP3/WAV files are also supported. The app's settings are in the UI or a plain JSON file, with no API key.
-
-The wake word is off by default, and calls require DotDial to be running plus an account with access to a dot. This experimental Linux x86_64 beta uses internal ChatGPT web routes, so compatibility may change.
-
-Source, packages, screenshots, and privacy notes: https://github.com/aaamosh/DotDial
+The [HN Guidelines](https://news.ycombinator.com/newsguidelines.html) checked on October 4, 2026 prohibit generated text and automated posting. A maintainer who chooses to submit a Show HN should write their own post and participate personally. Do not reuse AI-written launch copy there.
 
 ## GitHub release short copy
 
@@ -61,8 +78,12 @@ Requires the installed app to be running and a ChatGPT account that already has 
 
 Attach the `.deb`, `.tar.gz`, and `SHA256SUMS` from the exact release build. Do not include account details or recordings.
 
-## Posting order
+## Publication notes
 
-1. Publish and verify the GitHub source and beta download links.
-2. Consider r/linuxapps, then r/OpenAI if their current self-promotion rules allow it.
-3. Consider Show HN after independent installation feedback.
+1. Link to the verified public release and keep platform claims current.
+2. Linux app communities and Dots-specific communities are the closest audiences.
+3. For curated directories, disclose maintainer affiliation and distinguish a submitted suggestion from an accepted entry.
+4. Editorial pitches should be short, relevant to the publication, and sent once.
+5. The current [DEV AI guidelines](https://dev.to/guidelines-for-ai-assisted-articles-on-dev) do not permit AI-assisted promotional articles. The [Discord rules on self-bots](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots) prohibit automating ordinary user accounts. Do not treat a working login as permission for a prohibited publication method.
+
+Rules above were checked on October 4, 2026; recheck them before a later campaign.
