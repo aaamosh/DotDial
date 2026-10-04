@@ -4,13 +4,13 @@
 
 **Say "Hey Dot." Leave the keyboard behind.**
 
-[![CI](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml/badge.svg)](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-7de0bb)](LICENSE) ![Linux x64 beta](https://img.shields.io/badge/Linux-x64_beta-91b7d5)
+[![CI](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml/badge.svg)](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-7de0bb)](LICENSE) ![Linux x64 beta](https://img.shields.io/badge/Linux-x64_beta-91b7d5) [![macOS preview](https://img.shields.io/badge/macOS-Apple_Silicon_%26_Intel_preview-91b7d5)](docs/MACOS.md)
 
 [Download the Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/dotdial_0.1.0-beta.2_amd64.deb) · [Download the Linux x86_64 archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/DotDial-0.1.0-beta.2-linux-x64.tar.gz) · [Release page](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.2) · [SHA-256 checksums](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/SHA256SUMS)
 
 Cooking, stretching, or thinking out loud on the sofa? Call your ChatGPT dot without reaching for your laptop. Once voice activation is set up, say **"Hey Dot"** from wherever your microphone can hear you. DotDial starts the call; you keep doing what you were doing.
 
-DotDial lives in your Linux tray, ready when you are. ChatGPT and Codex do not need to be installed or running. Sign in with the account that already has your dot; no API key is required.
+DotDial lives in your Linux tray or macOS menu bar, ready when you are. ChatGPT and Codex do not need to be installed or running. Sign in with the account that already has your dot; no API key is required.
 
 **Voice when your hands are busy. Saved replies when your ears are busy. A little 1997 while the call connects.**
 
@@ -44,9 +44,16 @@ These previews use the local synthetic demo, so no real account or conversation 
 
 ## Install the beta
 
-You need **Linux x86_64** and a ChatGPT account that already has a dot. DotDial is an unofficial community project, not an OpenAI product. This beta uses internal ChatGPT web routes rather than a supported public voice API, so service changes can affect compatibility.
+You need **Linux x86_64** or **macOS 13+** (Apple Silicon or Intel), and a ChatGPT account that already has a dot. DotDial is an unofficial community project, not an OpenAI product. This beta uses internal ChatGPT web routes rather than a supported public voice API, so service changes can affect compatibility.
 
 DotDial 0.1.0-beta.2 bundles Electron 44.5.1. The `.deb` is for Debian/Ubuntu; the archive installer works on Linux distributions with the required Electron desktop libraries.
+
+### macOS preview
+
+Native `.app.zip` and `.dmg` previews are built for Apple Silicon and Intel. See
+[macOS installation, microphone permission and wake setup](docs/MACOS.md). These
+preview builds are ad-hoc signed, not Developer ID signed or notarized. Linux
+release downloads above remain unchanged.
 
 ### Debian or Ubuntu
 
@@ -71,7 +78,10 @@ Open **Settings**, paste your dot profile URL, and choose **Save and continue**.
 
 ### Optional wake word
 
-Wake-word support is disabled by default. To enable it, open **Settings → Voice**, enable the wake word, and choose **Install or check wake-word support**. This downloads the pinned Python dependencies and English model only when requested. Setup requires Python 3, a virtual-environment package, and PortAudio; on Debian/Ubuntu, install them with:
+For macOS, follow the [native wake setup](docs/MACOS.md#optional-local-wake-word).
+The instructions below are for Linux.
+
+Wake-word support is disabled by default. To enable it, open **Settings → Voice**, enable the wake word, save the settings, and choose **Install or check wake-word support**. This downloads the pinned Python dependencies and English model only when requested. Setup requires Python 3, a virtual-environment package, and PortAudio; on Debian/Ubuntu, install them with:
 
 ```sh
 sudo apt install python3 python3-venv libportaudio2
@@ -81,7 +91,7 @@ The example phrase is **Hey Dot**. Phrase and sensitivity changes apply immediat
 
 ## Run from source
 
-Requirements: Node.js 22.12 or later, npm, and a Linux x86_64 desktop session.
+Requirements: Node.js 22.12 or later, npm, and a Linux x86_64 or macOS 13+ desktop session.
 
 ```sh
 git clone https://github.com/aaamosh/DotDial.git
@@ -94,7 +104,8 @@ The demo is a credential-free visual preview. It uses synthetic data and does no
 
 ## Local files and uninstall
 
-DotDial keeps settings, its sign-in profile, recordings, and diagnostics on your device. Default paths follow `config.cjs` and the XDG Base Directory variables:
+DotDial keeps settings, its sign-in profile, recordings, and diagnostics on your device. Linux defaults follow `config.cjs` and the XDG Base Directory variables.
+macOS uses Application Support and Caches; see [macOS files and CLI](docs/MACOS.md#local-files-and-cli).
 
 | Data | Default path |
 | --- | --- |

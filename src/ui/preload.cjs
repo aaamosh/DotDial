@@ -11,6 +11,7 @@ const subscribe = (channel, listener) => {
 };
 
 contextBridge.exposeInMainWorld('dotdial', Object.freeze({
+  platform: process.platform,
   readConfig: () => invoke('dotdial:config-read'),
   saveConfig: (config, hash) => invoke('dotdial:config-save', { config, hash }),
   command: (name, payload) => invoke('dotdial:command', name, payload),

@@ -21,6 +21,7 @@ function normalizedVolume(value, fallback = 0.55) {
 export class CallSounds {
   constructor(options = {}) {
     this.spawnPlayer = options.spawnPlayer || spawn;
+    this.platform = options.platform ?? process.platform;
     this.repeatMs = options.repeatMs ?? 1400;
     this.playbackTimeoutMs = options.playbackTimeoutMs || PLAYBACK_TIMEOUT_MS;
     this.resolveCustomSound = options.resolveCustomSound;
@@ -167,7 +168,11 @@ export class CallSounds {
       if (generation !== this.generation || (!this.enabled && timeoutName !== 'preview')) { resolve(); return; }
       let child;
       try {
-        child = this.spawnPlayer('/usr/bin/paplay', [`--volume=${Math.round(65536 * volume)}`, file], { stdio: 'ignore' });
+        const player = this.platform === 'darwin' ? '/usr/bin/afplay' : '/usr/bin/paplay';
+        const args = this.platform === 'darwin'
+          ? ['-v', String(volume), file]
+          : [`--volume=${Math.round(65536 * volume)}`, file];
+        child = this.spawnPlayer(player, args, { stdio: 'ignore' });
       } catch (error) {
         reject(error);
         return;

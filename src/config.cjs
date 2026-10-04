@@ -14,7 +14,7 @@ const DEFAULTS = {
   },
   general: {
     startAtLogin: false,
-    hotkey: 'CommandOrControl+Alt+Space',
+    hotkey: process.platform === 'darwin' ? 'Command+Shift+Space' : 'CommandOrControl+Alt+Space',
   },
   audio: {
     bufferMs: 0,
@@ -249,19 +249,23 @@ function getPaths(overrides = {}) {
   if (!isRecord(overrides)) throw new ConfigError('DOTDIAL_PATH_INVALID', 'Path overrides must be an object');
   const env = isRecord(overrides.env) ? overrides.env : process.env;
   const home = absoluteDir(overrides.home || os.homedir(), 'home');
-  const choose = (override, envName, fallback, field) => absoluteDir(
-    override || env[envName] || path.join(home, fallback), field);
-  const configHome = choose(overrides.configHome, 'XDG_CONFIG_HOME', '.config', 'configHome');
-  const stateHome = choose(overrides.stateHome, 'XDG_STATE_HOME', '.local/state', 'stateHome');
-  const dataHome = choose(overrides.dataHome, 'XDG_DATA_HOME', '.local/share', 'dataHome');
-  const cacheHome = choose(overrides.cacheHome, 'XDG_CACHE_HOME', '.cache', 'cacheHome');
-  const runtimeFallback = typeof process.getuid === 'function' ? `/run/user/${process.getuid()}` : path.join(os.tmpdir(), 'dotdial-runtime');
-  const runtimeHome = absoluteDir(overrides.runtimeHome || env.XDG_RUNTIME_DIR || runtimeFallback, 'runtimeHome');
-  const configDir = path.join(configHome, 'dotdial');
-  const stateDir = path.join(stateHome, 'dotdial');
-  const dataDir = path.join(dataHome, 'dotdial');
-  const cacheDir = path.join(cacheHome, 'dotdial');
-  const runtimeDir = path.join(runtimeHome, 'dotdial');
+  const platform = overrides.platform || process.platform;
+  const mac = platform === 'darwin';
+  const support = path.join(home, 'Library', 'Application Support', 'DotDial');
+  // Explicit XDG roots remain useful for isolated tests and custom installs on
+  // either platform. Native macOS defaults never write into /run or the .app.
+  const choose = (override, envName, fallback, field) => override || env[envName]
+    ? path.join(absoluteDir(override || env[envName], field), 'dotdial')
+    : fallback;
+  const configDir = choose(overrides.configHome, 'XDG_CONFIG_HOME', mac ? support : path.join(home, '.config', 'dotdial'), 'configHome');
+  const stateDir = choose(overrides.stateHome, 'XDG_STATE_HOME', mac ? path.join(support, 'state') : path.join(home, '.local', 'state', 'dotdial'), 'stateHome');
+  const dataDir = choose(overrides.dataHome, 'XDG_DATA_HOME', mac ? path.join(support, 'data') : path.join(home, '.local', 'share', 'dotdial'), 'dataHome');
+  const cacheDir = choose(overrides.cacheHome, 'XDG_CACHE_HOME', mac ? path.join(home, 'Library', 'Caches', 'DotDial') : path.join(home, '.cache', 'dotdial'), 'cacheHome');
+  const uid = overrides.uid ?? (typeof process.getuid === 'function' ? process.getuid() : null);
+  const temp = absoluteDir(overrides.tmpdir || os.tmpdir(), 'tmpdir');
+  const runtimeFallback = mac ? path.join(temp, `dotdial-${uid ?? 'user'}`)
+    : uid !== null ? path.join('/run/user', String(uid), 'dotdial') : path.join(temp, 'dotdial-runtime', 'dotdial');
+  const runtimeDir = choose(overrides.runtimeHome, 'XDG_RUNTIME_DIR', runtimeFallback, 'runtimeHome');
   return {
     configDir,
     configFile: path.join(configDir, 'config.json'),

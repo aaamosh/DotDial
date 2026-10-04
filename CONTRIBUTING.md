@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for taking a look at DotDial. The project is an experimental Linux x86_64 beta, and its ChatGPT dot voice adapter may need updates when OpenAI changes its web client.
+Thanks for taking a look at DotDial. The project has a Linux x86_64 beta and a macOS Apple Silicon/Intel preview, and its ChatGPT dot voice adapter may need updates when OpenAI changes its web client.
 
 ## Local checks
 
@@ -27,3 +27,11 @@ The test suite uses local fixtures and synthetic audio. It must not sign in to C
 - If a change depends on an internal ChatGPT route, document that dependency and test it with a dedicated disposable account only outside CI.
 
 Before opening a pull request, read [Privacy](docs/PRIVACY.md), [Security](SECURITY.md), and the configuration guidance in [docs/AGENT.md](docs/AGENT.md).
+
+## macOS builds
+
+Build natively on each architecture with `npm run package:macos`; see
+[the macOS build and acceptance guide](docs/MACOS.md#build-and-verify-from-source).
+The macOS workflow tests both architectures and emits separate installer and QA
+artifacts. Do not describe an ad-hoc signature as Developer ID signing or Apple
+notarization. Keep changes compatible with the existing Linux checks.

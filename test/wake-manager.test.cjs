@@ -65,7 +65,7 @@ function fixture(t, { model = true, onSpawn } = {}) {
   const changes = [];
   const wakes = [];
   const manager = new WakeManager({
-    paths, spawn,
+    paths, spawn, platform: 'linux',
     onWake: () => wakes.push('wake'),
     onChange: () => changes.push({ status: manager.status, error: manager.error }),
   });

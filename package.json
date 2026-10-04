@@ -2,7 +2,7 @@
   "name": "dotdial",
   "productName": "DotDial",
   "version": "0.1.0-beta.2",
-  "description": "A little phone for your ChatGPT dot. Voice activation, quiet mode and missed replies, built for Linux.",
+  "description": "A little phone for your ChatGPT dot. Voice activation, quiet mode and missed replies for Linux and macOS.",
   "main": "src/main.cjs",
   "license": "MIT",
   "author": "DotDial contributors",
@@ -16,6 +16,7 @@
     "test": "node --test src/*.test.mjs test/*.test.cjs",
     "check:public": "node scripts/check-public.cjs",
     "package": "node scripts/package.cjs",
+    "package:macos": "node scripts/package-macos.cjs",
     "wake:setup": "python3 scripts/setup-wake.py"
   },
   "devDependencies": { "electron": "44.5.1", "@electron/packager": "20.3.0" }

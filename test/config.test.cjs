@@ -24,7 +24,7 @@ test('defaults match the versioned DotDial settings contract', () => {
   assert.deepEqual(defaults, {
     version: 1,
     dot: { url: '', displayName: 'My dot', expectedEmail: '' },
-    general: { startAtLogin: false, hotkey: 'CommandOrControl+Alt+Space' },
+    general: { startAtLogin: false, hotkey: process.platform === 'darwin' ? 'Command+Shift+Space' : 'CommandOrControl+Alt+Space' },
     audio: {
       bufferMs: 0, microphoneDeviceId: 'default', outputDeviceId: 'default', sounds: true,
       soundVolume: 0.55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false,

@@ -32,7 +32,7 @@
       "required": ["startAtLogin", "hotkey"],
       "properties": {
         "startAtLogin": { "type": "boolean", "default": false },
-        "hotkey": { "type": "string", "minLength": 1, "maxLength": 96, "pattern": "^(?:(?:CommandOrControl|CmdOrCtrl|Control|Ctrl|Command|Cmd|Option|Alt|AltGr|Shift|Super|Meta)\\+)+(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Plus|Space|Tab|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|VolumeUp|VolumeDown|VolumeMute|MediaNextTrack|MediaPreviousTrack|MediaStop|MediaPlayPause)$", "default": "CommandOrControl+Alt+Space" }
+        "hotkey": { "type": "string", "minLength": 1, "maxLength": 96, "pattern": "^(?:(?:CommandOrControl|CmdOrCtrl|Control|Ctrl|Command|Cmd|Option|Alt|AltGr|Shift|Super|Meta)\\+)+(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Plus|Space|Tab|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|VolumeUp|VolumeDown|VolumeMute|MediaNextTrack|MediaPreviousTrack|MediaStop|MediaPlayPause)$", "default": "CommandOrControl+Alt+Space", "description": "Linux default; fresh macOS profiles use Command+Shift+Space. Existing configured values are retained." }
       }
     },
     "audio": {

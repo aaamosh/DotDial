@@ -4,7 +4,12 @@ The normal way to change advanced preferences is to edit DotDial's versioned JSO
 
 ## Configuration file
 
-The default location is `${XDG_CONFIG_HOME:-~/.config}/dotdial/config.json`. The directory is created with mode `0700`; files are written atomically with mode `0600`. State, user data, cache, and runtime files use separate XDG locations:
+On macOS the default file is `~/Library/Application Support/DotDial/config.json`.
+See [macOS paths and bundled CLI](MACOS.md#local-files-and-cli); the bundled command
+is `/Applications/DotDial.app/Contents/Resources/dotdial-cli`. The XDG table below
+describes Linux defaults and explicit overrides, which are also honored on macOS.
+
+The Linux default location is `${XDG_CONFIG_HOME:-~/.config}/dotdial/config.json`. The directory is created with mode `0700`; files are written atomically with mode `0600`. State, user data, cache, and runtime files use separate XDG locations:
 
 | Purpose | Default |
 | --- | --- |
@@ -52,7 +57,7 @@ If another process saved first, the write fails with `DOTDIAL_CONFIG_CONFLICT`; 
 
 `doctor` emits JSON checks for local platform, Node, Electron, entry-point, launcher, runtime-directory, socket-path, and enabled wake-word interpreter availability. It does not contact OpenAI, inspect a login profile, prompt for credentials, open a call, or access the microphone. `run` starts the project's pinned Electron binary and `src/main.cjs`, passing `--config=<absolute-path>` and `--profile=<XDG-data>/dotdial/profile`. It uses `network.signalingLauncher` as an argv prefix and never invokes a shell. For a source checkout, `--electron /absolute/path/to/electron` can select a test runtime.
 
-The desktop process creates the private agent socket at `$XDG_RUNTIME_DIR/dotdial/dotdial.sock`. The local commands below send one newline-terminated verb and expect one JSON response line:
+The desktop process creates a private agent socket at the platform path reported by `doctor`; on Linux it is `$XDG_RUNTIME_DIR/dotdial/dotdial.sock`. The local commands below send one newline-terminated verb and expect one JSON response line:
 
 | CLI command | Agent verb | Effect |
 | --- | --- | --- |
@@ -70,3 +75,14 @@ Agent requests have a three-second timeout and responses are limited to 64 KiB. 
 The app notices external config edits within about a second. Invalid JSON leaves the last valid settings running and reports a config error. Wake-word edits take effect during calls and recovery without restarting the app or call. Other preferences that would affect a running call apply after it ends; changing `network.signalingLauncher` requires restarting DotDial.
 
 Device choices use `label:<device name>` rather than Chromium's profile-specific IDs. Scan in Settings to choose a device. If it is removed or its name is ambiguous, DotDial reports an error instead of silently choosing another microphone. `default` follows the operating system's default device. Device scanning does not start a microphone stream.
+
+## macOS permissions and shortcuts
+
+Fresh macOS settings use `Command+Shift+Space`; existing configured shortcuts are
+retained. Microphone operations require native permission. A CLI request that
+reports `microphone_permission_required` must be repeated after granting permission
+in the app; it is not resumed later. The menu bar remains available when a global
+shortcut cannot be registered. Native Login Items require a packaged, signed and
+notarized app for reliable OS registration; the ad-hoc preview reports actual
+registration status. Custom signaling launchers are applied by `dotdial-cli run`,
+not by directly opening the application in Finder.

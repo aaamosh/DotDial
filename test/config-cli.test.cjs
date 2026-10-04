@@ -113,8 +113,30 @@ test('doctor is a local-only report and does not contact the running agent', asy
   const report = await execute(['doctor'], env);
   const value = JSON.parse(report.stdout);
   assert.equal(report.code, value.ok ? 0 : 1);
-  assert.equal(value.checks.platformLinux, process.platform === 'linux');
+  assert.equal(value.checks.platformSupported, ['linux', 'darwin'].includes(process.platform));
+  assert.equal(value.platform, process.platform);
   assert.equal(value.checks.config, true);
   assert.equal(value.checks.wakeWordPython, null);
   assert.equal(fs.existsSync(path.join(env.XDG_RUNTIME_DIR, 'dotdial', 'dotdial.sock')), false);
+});
+
+test('doctor reports the effective managed wake runtime and default model directory without running Python', async t => {
+  const { env } = setup(t);
+  const data = path.join(env.XDG_DATA_HOME, 'dotdial');
+  const python = path.join(data, 'wake-venv', 'bin', 'python');
+  const model = path.join(data, 'models', 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01');
+  fs.mkdirSync(path.dirname(python), { recursive: true });
+  fs.writeFileSync(python, '#!/bin/sh\nexit 99\n', { mode: 0o700 });
+  fs.mkdirSync(model, { recursive: true });
+  const enabled = await execute(['config', 'set', 'wakeWord.enabled', 'true'], env);
+  assert.equal(enabled.code, 0, enabled.stderr);
+  const report = JSON.parse((await execute(['doctor'], env)).stdout);
+  assert.equal(report.paths.wakeWordPython, python);
+  assert.equal(report.paths.wakeWordModel, model);
+  assert.equal(report.checks.wakeWordPython, true);
+  assert.equal(report.checks.wakeWordModel, true);
+  fs.rmSync(model, { recursive: true });
+  fs.writeFileSync(model, 'A model must be a directory, not a file.');
+  const wrongType = JSON.parse((await execute(['doctor'], env)).stdout);
+  assert.equal(wrongType.checks.wakeWordModel, false);
 });
