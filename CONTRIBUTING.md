@@ -15,6 +15,8 @@ python3 -m py_compile scripts/setup-wake.py
 
 The test suite uses local fixtures and synthetic audio. It must not sign in to ChatGPT, start a live call, or access a real microphone. `npm run demo` is safe for a visual preview and uses synthetic data.
 
+`check:public` scans text and filenames for Cyrillic and private data, regardless of extension. It also checks tracked files in directories normally excluded as build output. Text must be UTF-8 or BOM-marked UTF-16. Binary assets require content and metadata review; the scanner pins the exact hashes of reviewed screenshots and generated call tones. After changing one, review it again before updating its hash in `scripts/check-public.cjs`.
+
 ## Pull requests
 
 - Keep changes small and explain the behavior they change.

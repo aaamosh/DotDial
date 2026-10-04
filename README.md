@@ -56,7 +56,7 @@ npm run demo
 
 ### Install a release build
 
-Download the Linux x86_64 `.deb` or `.tar.gz` from GitHub Releases. The beta artifacts are named `dotdial_0.1.0~beta.1_amd64.deb` and `DotDial-0.1.0-beta.1-linux-x64.tar.gz`.
+Download the Linux x86_64 `.deb` or `.tar.gz` from GitHub Releases. The beta artifacts are named `dotdial_0.1.0-beta.1_amd64.deb` and `DotDial-0.1.0-beta.1-linux-x64.tar.gz`.
 
 For Debian or Ubuntu:
 

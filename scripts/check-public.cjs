@@ -3,15 +3,24 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const { createHash } = require('node:crypto');
+const { TextDecoder } = require('node:util');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const SKIP_DIRS = new Set([
   '.git', '.venv', '__pycache__', 'build', 'coverage', 'dist', 'node_modules', 'work',
 ]);
-const TEXT_EXTENSIONS = new Set([
-  '.cjs', '.css', '.desktop', '.html', '.js', '.json', '.md', '.mjs', '.py', '.sh', '.txt', '.yml', '.yaml',
+// Binary content cannot be audited as text. These exact screenshots and
+// generated call tones have been reviewed; any change requires a fresh review.
+const REVIEWED_BINARIES = new Map([
+  ['docs/images/panel.png', '0a64400e29c0671cb66f6ecfbddd813202d873693ac26a0bbf2e11d616276682'],
+  ['docs/images/settings.png', '4bd2844aa7d18a3bb7d8eea0ea90ace1b200539dcdd8d0068a906fa62c4892be'],
+  ['docs/images/voice.png', 'd8ab8a7c66fcb7f2c3c43eb8e54b88a5e7245fca38eb6ac0e7cc6bfed111f78e'],
+  ['src/sounds/calling.wav', 'f72efb7c687641098c8301ed8ec9af7f561e04316a31663c85d1a6cadd7babeb'],
+  ['src/sounds/connected.wav', '6a08aab9c1c422f2e218379f09cfe09398b046a77ac57078182bfe3bfd174e3a'],
+  ['src/sounds/ended.wav', '0ff18c3c2040d28eed720f6d72ac27274c4bc4adffb3757b79990490054013a0'],
 ]);
-const TEXT_BASENAMES = new Set(['.gitignore', 'Dockerfile', 'Makefile']);
 const TOKEN_PATTERNS = [
   ['private-key', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/giu],
   ['openai-key', /\bsk-(?:proj-)?[A-Za-z0-9_-]{24,}\b/gu],
@@ -91,27 +100,63 @@ function inspectText(relative, text, findings) {
     SAFE_PLACEHOLDERS.has((match[1] || match[2] || match[3] || '').toLowerCase()));
 }
 
+function decodeText(bytes) {
+  // Decode before checking for NUL so UTF-16 cannot bypass the text audit.
+  let encoding = 'utf-8';
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
+  try {
+    const text = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+    return text.includes('\u0000') ? null : text;
+  } catch { return null; }
+}
+
+function isApprovedBinary(relative, bytes) {
+  const expected = REVIEWED_BINARIES.get(relative);
+  return expected !== undefined && createHash('sha256').update(bytes).digest('hex') === expected;
+}
+
+function trackedFiles(root) {
+  // Source archives do not include Git metadata. In a checkout, tracked files
+  // must still be inspected if their directory normally holds build output.
+  if (!fs.existsSync(path.join(root, '.git'))) return new Set();
+  return new Set(execFileSync('git', ['-C', root, 'ls-files', '--cached', '-z'], {
+    encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+  }).split('\u0000').filter(Boolean));
+}
+
 function scanPublicTree(root = PROJECT_ROOT) {
   const findings = [];
+  const tracked = trackedFiles(root);
+  const trackedDirectories = new Set();
+  for (const file of tracked) {
+    let directory = path.posix.dirname(file);
+    while (directory !== '.') {
+      trackedDirectories.add(directory);
+      directory = path.posix.dirname(directory);
+    }
+  }
   const walk = relativeDir => {
     const absoluteDir = path.join(root, relativeDir);
     for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const relative = path.posix.join(relativeDir.split(path.sep).join('/'), entry.name).replace(/^\.\//u, '');
-      if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
+      if (entry.name === '.git') continue;
+      if (entry.isDirectory() && SKIP_DIRS.has(entry.name) && !trackedDirectories.has(relative)) continue;
       inspectPath(relative, entry, findings);
       if (entry.isDirectory()) { walk(path.join(relativeDir, entry.name)); continue; }
       if (!entry.isFile()) continue;
-      const extension = path.extname(entry.name).toLowerCase();
-      if (!TEXT_EXTENSIONS.has(extension) && !TEXT_BASENAMES.has(entry.name)) continue;
       const absolute = path.join(root, relative);
       const stat = fs.statSync(absolute);
       if (stat.size > 2 * 1024 * 1024) {
         findings.push({ file: relative, line: 1, rule: 'oversized-source-file' });
         continue;
       }
-      const text = fs.readFileSync(absolute, 'utf8');
-      if (text.includes('\u0000')) continue;
-      inspectText(relative, text, findings);
+      const bytes = fs.readFileSync(absolute);
+      const text = decodeText(bytes);
+      if (text !== null) inspectText(relative, text, findings);
+      else if (!isApprovedBinary(relative, bytes)) {
+        findings.push({ file: relative, line: 1, rule: 'unreviewed-binary-or-encoding' });
+      }
     }
   };
   walk('');

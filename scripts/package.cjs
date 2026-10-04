@@ -343,7 +343,7 @@ Description: A small Linux tray companion for calling a ChatGPT dot
  DotDial provides tray, hotkey, and floating-panel voice controls for a dot.
 `;
     writeFile(path.join(controlDir, 'control'), control, 0o644);
-    const debFile = path.join(DIST_DIR, `${PACKAGE_NAME}_${version}_amd64.deb`);
+    const debFile = path.join(DIST_DIR, `${PACKAGE_NAME}_${pkg.version}_amd64.deb`);
     execFileSync('dpkg-deb', ['--build', '--root-owner-group', debRoot, debFile], { stdio: 'inherit' });
 
     const debInfo = execFileSync('dpkg-deb', ['--info', debFile], { encoding: 'utf8' });
