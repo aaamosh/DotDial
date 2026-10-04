@@ -177,7 +177,10 @@ host platform; the Linux packaging path remains available on Linux.
 
 Native CI checks both architectures, executable metadata, signatures, archive
 contents, bundled CLI without system Node, local synthetic GUI and media behavior,
-and the DMG contents. The small QA artifact contains the corresponding results.
+the native wake decoder and complete PCM pipeline, and the DMG contents. The small
+QA artifact contains the corresponding results. The [testing guide](TESTING.md)
+describes each required stage, the isolated Linux runner and the limits of its
+synthetic audio checks.
 Synthetic checks do not establish that real ChatGPT authentication, a microphone
 permission prompt, physical audio hardware or Login Items will work on every Mac.
 Before a public release, test those with an actual user session on the minimum

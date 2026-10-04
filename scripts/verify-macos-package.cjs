@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { sha256, verifyBundle, BUNDLE_ID, MICROPHONE_DESCRIPTION } = require('./package-macos.cjs');
+const { runPosixSmoke } = require('./posix-smoke-supervisor.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -38,10 +39,15 @@ function verifyHelpers(bundle) {
 }
 
 function parseJsonLine(stdout, expectedField) {
-  for (const line of stdout.trim().split('\n').reverse()) {
-    try { const value = JSON.parse(line); if (Object.hasOwn(value, expectedField)) return value; } catch {}
+  const reports = [];
+  for (const line of stdout.trim().split('\n')) {
+    try {
+      const value = JSON.parse(line);
+      if (value !== null && typeof value === 'object' && Object.hasOwn(value, expectedField)) reports.push(value);
+    } catch {}
   }
-  throw Error(`Smoke result ${expectedField} was not emitted:\n${stdout}`);
+  if (reports.length !== 1) throw Error(`Expected exactly one smoke result ${expectedField}; got ${reports.length}:\n${stdout}`);
+  return reports[0];
 }
 
 function verifyLockHelper(lockHelper, temporary, env) {
@@ -140,8 +146,9 @@ async function main() {
     // compositor for CI screenshots; normal application launches are unchanged.
     const graphicsArgs = process.arch === 'x64' ? ['--disable-gpu'] : [];
     const packagedSource = path.join(bundle, 'Contents', 'Resources', 'app');
-    // Once archive identity and signatures are valid, these checks are
-    // independent. Collect every result while keeping every stage mandatory.
+    const wakeData = path.join(temporary, 'wake');
+    // Collect every required result. The pipeline uses the decoder stage's
+    // managed environment; a failed prerequisite cannot turn that gate green.
     await runRequiredStages([
       ['native_config_lock', async () => {
         evidence.nativeConfigLock = verifyLockHelper(lockHelper, temporary, env);
@@ -177,7 +184,6 @@ async function main() {
         // and local model. The helper feeds synthetic PCM, without a microphone.
         const python = process.env.DOTDIAL_SMOKE_PYTHON || run('python3', ['-c', 'import sys; print(sys.executable)']).stdout.trim();
         assert.ok(path.isAbsolute(python), 'wake validation requires a native Python 3.10-3.13 executable');
-        const wakeData = path.join(temporary, 'wake');
         run(python, [path.join(packagedSource, 'scripts', 'setup-wake.py'), '--data-dir', wakeData, '--stdin-audio'], { timeout: 300_000 });
         const wakeReport = path.join(reportDirectory, 'wake-check.json');
         try {
@@ -186,6 +192,32 @@ async function main() {
           if (fs.existsSync(wakeReport)) evidence.wake = JSON.parse(fs.readFileSync(wakeReport, 'utf8'));
         }
         assert.equal(evidence.wake?.wakeSmoke, 'passed');
+      }],
+      ['native_wake_pipeline', async () => {
+        // A development Electron host loads the extracted package's actual
+        // capture/manager/listener code. Fake audio avoids TCC and hardware,
+        // while the native Python process, IPC, pipe and signals remain real.
+        const pipelineReport = path.join(reportDirectory, 'wake-pipeline.json');
+        fs.rmSync(pipelineReport, { force: true });
+        let emittedReport;
+        try {
+          const result = await runPosixSmoke(require('electron'), [path.join(__dirname, 'smoke-wake-pipeline.cjs'),
+            '--data-dir', wakeData, '--app-source', packagedSource, '--output', pipelineReport],
+          { env: guiEnv, timeout: 180_000 });
+          evidence.wakePipelineSupervision = result.supervision;
+          emittedReport = parseJsonLine(result.stdout, 'wakePipelineSmoke');
+        } catch (error) {
+          if (error.supervision) evidence.wakePipelineSupervision = error.supervision;
+          throw error;
+        } finally {
+          if (fs.existsSync(pipelineReport)) evidence.wakePipeline = JSON.parse(fs.readFileSync(pipelineReport, 'utf8'));
+        }
+        assert.deepEqual(evidence.wakePipeline, emittedReport, 'the new file and single stdout pipeline report agree');
+        assert.equal(evidence.wakePipeline?.wakePipelineSmoke, 'passed');
+        assert.equal(evidence.wakePipeline.hostPlatform, 'darwin');
+        assert.equal(evidence.wakePipeline.hostArch, process.arch);
+        assert.equal(evidence.wakePipeline.electron, manifest.electronVersion);
+        assert.equal(evidence.wakePipeline.sourceRoot, packagedSource);
       }],
       ['disk_image', async () => {
         fs.mkdirSync(mount);
@@ -214,4 +246,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch(error => { console.error('MACOS_PACKAGE_CHECK_FAILED', error.stack || error.message); process.exitCode = 1; });
-module.exports = { main, runRequiredStages, verifyLockHelper };
+module.exports = { main, runRequiredStages, verifyLockHelper, parseJsonLine };

@@ -8,9 +8,20 @@ const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const test = require('node:test');
 const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, BUNDLE_ID } = require('../scripts/package-macos.cjs');
-const { runRequiredStages } = require('../scripts/verify-macos-package.cjs');
+const { runRequiredStages, parseJsonLine } = require('../scripts/verify-macos-package.cjs');
 const pkg = { name: 'dotdial', productName: 'DotDial', version: '0.1.0-beta.2', devDependencies: { electron: '44.5.1', '@electron/packager': '20.3.0' } };
 const sha = 'a'.repeat(40);
+
+test('smoke report parsing rejects contradictory or duplicate reports', () => {
+  assert.deepEqual(parseJsonLine('Chromium log\nnull\n{"packagedSmoke":"passed"}\n', 'packagedSmoke'), { packagedSmoke: 'passed' });
+  assert.deepEqual(parseJsonLine('{"packagedSmoke":"failed"}', 'packagedSmoke'), { packagedSmoke: 'failed' });
+  for (const output of [
+    '{"packagedSmoke":"failed"}\n{"packagedSmoke":"passed"}',
+    '{"packagedSmoke":"passed"}\n{"packagedSmoke":"failed"}',
+    '{"packagedSmoke":"passed"}\n{"packagedSmoke":"passed"}',
+    'Chromium log without a report',
+  ]) assert.throws(() => parseJsonLine(output, 'packagedSmoke'), /exactly one/);
+});
 
 test('macOS packaging requires a native supported architecture and exact installed pins', () => {
   const input = { platform: 'darwin', arch: 'arm64', pkg, electronVersion: '44.5.1', packagerVersion: '20.3.0' };
