@@ -17,6 +17,7 @@ async function boot() {
   const { getPaths, loadConfigSnapshot, saveConfig, validateConfig } = require('./config.cjs');
   const { attachClient } = require('./ipc_client.cjs');
   const { createBrowserIdentity } = require('./browser_identity.cjs');
+  const { requestInBrowser } = require('./browser_request.cjs');
   const { createWebRecovery } = require('./web_recovery.cjs');
   const { selectLiveConfig } = require('./live_config.cjs');
   const { installQuitBarrier } = require('./quit_guard.cjs');
@@ -32,8 +33,9 @@ async function boot() {
     paths.socketPath = path.join(paths.runtimeDir, 'dotdial.sock');
   }
   for (const dir of [paths.configDir, paths.stateDir, paths.dataDir, paths.runtimeDir]) {
+    const existingCustomParent = !!option('config') && dir === paths.configDir && fs.existsSync(dir);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(dir, 0o700);
+    if (!existingCustomParent) fs.chmodSync(dir, 0o700);
   }
   let snapshot;
   try { snapshot = loadConfigSnapshot(paths.configFile); }
@@ -53,6 +55,8 @@ async function boot() {
   let configReloadRequested = false;
   let demoCallTimer, currentThreadId = null, callPreparing = false;
   let webVerifying = false, webActionRequired = false;
+  let statusPersistenceError = null;
+  let verifiedIdentity = null;
   let lastState = { state: 'ready', local_listening: false };
   const journalFile = path.join(paths.stateDir, 'call-journal.json');
   const safeCode = error => /^[a-z0-9_]{1,100}$/i.test(error?.code || '') ? error.code : 'operation_failed';
@@ -73,21 +77,25 @@ async function boot() {
       wake_status: wakeManager?.status || 'disabled', wake_listening: wakeManager?.status === 'listening', wake_error: wakeManager?.error || null,
       wake_phrase: wakeManager?.config?.phrase || config.wakeWord.phrase,
       web_verifying: webVerifying, web_action_required: webActionRequired,
+      status_persistence_error: statusPersistenceError,
+      identity_verified: !!verifiedIdentity && verifiedIdentity.epoch === identityEpoch,
+      verified_email: verifiedIdentity?.epoch === identityEpoch ? verifiedIdentity.email : null,
       hotkey_available: hotkeyAvailable };
   }
   function publish(value = lastState) {
     if (lastState.state === 'active' && value.state !== 'active' && lastState.media) {
       // Preserve bounded transport counters before the next attempt resets them.
       // No addresses, call identifiers, speech or credentials are included.
-      writeJson(path.join(paths.stateDir, 'last-call-diagnostics.json'), {
+      try { writeJson(path.join(paths.stateDir, 'last-call-diagnostics.json'), {
         ended_at: new Date().toISOString(), media: lastState.media,
         timings_ms: lastState.timings_ms, last_error: value.last_error || null,
-      });
+      }); } catch { statusPersistenceError = 'diagnostics_write_failed'; }
     }
     lastState = value;
-    const current = state();
+    let current = state();
+    try { writeJson(path.join(paths.stateDir, 'status.json'), { updated_at: new Date().toISOString(), ...current }); }
+    catch { statusPersistenceError = 'status_write_failed'; current = state(); }
     desktop?.update(current);
-    writeJson(path.join(paths.stateDir, 'status.json'), { updated_at: new Date().toISOString(), ...current });
     wakeManager?.setCallState(current);
     if (current.state === 'ready' && configPending && !applyingConfig) void applyDiskConfig().catch(e => { configPending = false; configError = safeCode(e); desktop?.update(state()); });
   }
@@ -111,7 +119,7 @@ async function boot() {
   }
   function openLogin(show = true) {
     if (demo) return Promise.resolve();
-    if (show) identityEpoch++;
+    if (show) { identityEpoch++; verifiedIdentity = null; publish(); }
     if (loginWindow && !loginWindow.isDestroyed()) {
       if (show) { loginWindow.show(); loginWindow.focus(); }
       return pageFailed ? loadLoginPage() : pageReady;
@@ -120,7 +128,9 @@ async function boot() {
       partition: 'persist:dotdial', contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false,
     } });
     loginWindow.setMenuBarVisibility(false);
-    loginWindow.webContents.on('did-start-navigation', (_e, _url, _inPlace, mainFrame) => { if (mainFrame) identityEpoch++; });
+    loginWindow.webContents.on('did-start-navigation', (_e, _url, _inPlace, mainFrame) => {
+      if (mainFrame) { identityEpoch++; verifiedIdentity = null; publish(); }
+    });
     loginWindow.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const u = new URL(url);
@@ -154,6 +164,7 @@ async function boot() {
   }
   async function readIdentity() {
     await waitForWebPage();
+    const epoch = identityEpoch;
     const result = await inIdentityWorld(`
       try {
         const s = await auth.get();
@@ -162,14 +173,16 @@ async function boot() {
       } catch (e) { return { error: /^[a-z_]{1,80}$/.test(e?.code || '') ? e.code : 'login_connection_failed', status: e.status }; }
     `).catch(() => { throw failure('login_connection_failed'); });
     if (result.error) throw Object.assign(failure(result.error), { status: result.status });
-    return result.identity;
+    return { ...result.identity, epoch };
   }
   async function identity() {
     try {
       const result = await webRecovery.identity(readIdentity);
       webActionRequired = false;
+      if (result.epoch === identityEpoch) verifiedIdentity = { epoch: result.epoch, email: result.email };
+      publish();
       return result;
-    } catch (error) { return requireWebAction(error); }
+    } catch (error) { verifiedIdentity = null; return requireWebAction(error); }
   }
   async function fetchOpenAI(url, init = {}) {
     const target = new URL(url);
@@ -178,13 +191,9 @@ async function boot() {
     const send = async () => {
       const r = await inIdentityWorld(`
       const q = ${JSON.stringify(q)};
-      const s = await auth.get();
-      if (s.accountId !== q.accountId) throw Error('account_mismatch');
-      const headers = { Authorization: 'Bearer ' + s.accessToken, 'ChatGPT-Account-ID': q.accountId, Accept: 'application/json, application/sdp, text/plain' };
-      if (q.body !== undefined) headers['Content-Type'] = 'application/json';
-      const r = await fetch(q.path, { method: q.method, headers, body: q.body, credentials: 'include', redirect: 'error', signal: AbortSignal.timeout(20000) });
-      return { status: r.status, body: await r.text(), headers: Object.fromEntries(['location','content-type','cf-mitigated'].map(k => [k,r.headers.get(k)]).filter(x => x[1] !== null)) };
+      return (${requestInBrowser.toString()})(auth, q);
     `);
+      if (r.error) throw Object.assign(failure(r.error), { requestOutcome: r.requestOutcome });
       return new Response([204, 205, 304].includes(r.status) ? null : r.body, { status: r.status, headers: r.headers });
     };
     try {
@@ -254,7 +263,7 @@ async function boot() {
         await webSession.closeAllConnections();
       }
       if (old.dot.url !== config.dot.url || old.dot.expectedEmail !== config.dot.expectedEmail) {
-        identityEpoch++;
+        identityEpoch++; verifiedIdentity = null;
         if (loginWindow && !loginWindow.isDestroyed()) void loadLoginPage().catch(() => {});
       }
       if (app.isReady()) {
@@ -298,6 +307,7 @@ async function boot() {
     if (name === 'QUIT') { app.quit(); return { status: 'quitting' }; }
     if (name === 'STATUS') return state();
     if (name === 'SETTINGS') { desktop.openSettings(); return { status: 'settings_opened' }; }
+    if (name === 'WAKE_DEVICES') return demo ? { status: 'wake_devices_listed', inputs: [] } : wakeManager.listDevices();
     if (demo) {
       if (name === 'WAKE') { stopSoundPreview(); clearTimeout(demoCallTimer); publish({ ...lastState, state: 'starting' }); demoCallTimer = setTimeout(() => publish({ ...lastState, state: 'active', local_listening: true, microphone_muted: false }), 600); }
       if (name === 'STOP') { clearTimeout(demoCallTimer); publish({ state: 'ready', local_listening: false, missed_count: 0 }); }
@@ -324,7 +334,11 @@ async function boot() {
         return controller.wake({ microphone: !config.audio.microphoneInitiallyMuted, maxSeconds: config.call.maxMinutes * 60 });
       } finally { if (ticket === wakeEpoch) callPreparing = false; publish(); }
     }
-    if (name === 'STOP') { wakeEpoch++; callPreparing = false; audioControls.cancelActivation(); await mailbox.stop(); void controller.stop(); return { status: 'accepted_stop' }; }
+    if (name === 'STOP') {
+      wakeEpoch++; callPreparing = false;
+      void audioControls.stop().catch(() => mailbox.setError('playback_failed'));
+      return { status: 'accepted_stop' };
+    }
     if (name === 'MUTE' || name === 'UNMUTE') return audioControls.microphone(name === 'UNMUTE');
     if (name === 'SPEAKERS_MUTE' || name === 'SPEAKERS_UNMUTE') return audioControls.speakers(name === 'SPEAKERS_MUTE');
     if (name === 'MISSED_PLAY') { stopSoundPreview(); return audioControls.play(); }

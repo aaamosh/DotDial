@@ -58,7 +58,7 @@
               </div>
               <label class="field full-field"><span class="field-label" data-i18n="dotLink">Dot link</span><div class="input-with-icon"><span>↗</span><input id="dot-url" type="url" maxlength="256" autocomplete="url" placeholder="https://chatgpt.com/dots/…"><button id="paste-dot-link" type="button" class="input-action" data-i18n="paste">Paste</button></div><span class="field-hint" data-i18n="dotLinkHint">Use the link from your Dot profile. DotDial opens it in a separate signed-in window.</span></label>
               <div id="connect-error" class="inline-alert error-alert" role="alert" hidden></div>
-              <div class="connect-actions"><button id="save-connect" class="primary-button" type="button"><span data-i18n="saveAndContinue">Save and continue</span><span class="button-arrow">→</span></button><button id="login-connect" class="secondary-button" type="button"><span class="external-mark">↗</span><span data-i18n="signInOpenChatGPT">Sign in / open ChatGPT</span></button><span id="connect-status" class="status-note"></span></div>
+              <div class="connect-actions"><button id="save-connect" class="primary-button" type="button"><span data-i18n="saveProfile">Save settings</span></button><button id="login-connect" class="secondary-button" type="button"><span class="external-mark">↗</span><span data-i18n="signInOpenChatGPT">Sign in / open ChatGPT</span></button><span id="connect-status" class="status-note"></span></div>
               <div class="privacy-note"><span class="privacy-lock">⌑</span><p data-i18n="privacyNote">Your sign-in stays in the DotDial window. The app uses the visible ChatGPT page and keeps no password in its settings.</p><span class="privacy-spark">✧</span></div>
             </article>
 
@@ -84,8 +84,10 @@
             <article class="glass-card settings-card audio-card">
               <div class="card-title-row"><div class="card-icon blue-icon">♫</div><div><h2 data-i18n="audioDevices">Audio devices</h2><p data-i18n="deviceHelp">Device names are requested only when you press Scan devices.</p></div><button id="scan-devices" class="quiet-button compact-button" type="button"><span class="button-icon">↻</span><span data-i18n="scanDevices">Scan devices</span></button></div>
               <div class="field-grid two-col">
-                <label class="field"><span class="field-label" data-i18n="microphone">Microphone</span><select id="audio-microphone"><option value="default" data-i18n="systemDefault">System default</option></select><span class="field-hint" data-i18n="microphoneHint">Used for calls. Wake word uses the system default input.</span></label>
+                <label class="field"><span class="field-label" data-i18n="microphone">Microphone</span><select id="audio-microphone"><option value="default" data-i18n="systemDefault">System default</option></select><span class="field-hint" data-i18n="microphoneHint">Used for calls. Wake word has a separate input selector.</span></label>
                 <label class="field"><span class="field-label" data-i18n="speakers">Speakers</span><select id="audio-output"><option value="default" data-i18n="systemDefault">System default</option></select><span class="field-hint" data-i18n="speakersHint">Choose where Dot’s voice plays.</span></label>
+                <label class="field"><span class="field-label" data-i18n="wakeInput">Wake-word input (optional)</span><select id="wake-input"><option value="default" data-i18n="systemDefault">System default</option></select><span class="field-hint" data-i18n="wakeInputHint">This selects a PortAudio device for local wake recognition only.</span></label>
+                <div class="field"><span class="field-label" data-i18n="wakeInputScanLabel">Wake-word input list</span><button id="scan-wake-devices" class="quiet-button compact-button" type="button"><span class="button-icon">↻</span><span data-i18n="scanWakeDevices">Scan wake inputs</span></button><span id="wake-devices-status" class="field-hint" role="status" aria-live="polite"></span></div>
               </div>
               <div id="devices-status" class="status-note devices-status"></div>
             </article>

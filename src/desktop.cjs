@@ -19,7 +19,7 @@ const IPC = Object.freeze({
 });
 const COMMANDS = new Set([
   'WAKE', 'STOP', 'MUTE', 'UNMUTE', 'SPEAKERS_MUTE', 'SPEAKERS_UNMUTE',
-  'MISSED_PLAY', 'MISSED_STOP', 'MISSED_CLEAR', 'LOGIN', 'WAKE_SETUP', 'QUIT',
+  'MISSED_PLAY', 'MISSED_STOP', 'MISSED_CLEAR', 'LOGIN', 'WAKE_SETUP', 'WAKE_DEVICES', 'QUIT',
 ]);
 
 function safeState(input) {

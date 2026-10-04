@@ -1,6 +1,14 @@
-# DotDial 0.1.0-beta.2
+# DotDial 0.1.0-beta.3
 
-**Linux fix:** Right-clicking the floating call panel now opens its context menu.
+**Reliability update:** This release fixes asynchronous audio cancellation, missed-reply recording, call recovery, and first-run settings.
+
+- A timed-out microphone request retires its media worker; a late capture cannot silently turn a muted call into a live microphone.
+- Hanging up cancels the call before replay can restore audio. Stopped replay stays stopped while output-device selection finishes.
+- Long saved replies split at the exact sample boundary and keep their FIFO order.
+- An account check that fails before call creation no longer locks out later calls. Unknown allocation outcomes remain protected against duplicate calls.
+- Status-file errors do not prevent remote cleanup. Config saving, wake setup, and account indicators have also been corrected.
+
+The three-button panel, saved position, network routing, and existing sound choices are preserved. [Detailed fixes and verification](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3/docs/REVIEW_FIXES.md).
 
 **Say "Hey Dot." Leave the keyboard behind.**
 
@@ -18,7 +26,7 @@ Cooking, stretching, or thinking out loud on the sofa? DotDial lets you call you
 
 The default connection sound is **a real 14.4 kbps modem handshake recorded in 1997**. A small piece of internet history plays while your dot connects and stops when the call is ready.
 
-Love it? Keep it. Prefer something else? Choose telephone tones, your own **MP3 or WAV**, or switch call sounds off in **Settings → Voice**. Preview and volume controls are included. [Recording credits and CC0 license](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.2/THIRD_PARTY_NOTICES.md).
+Love it? Keep it. Prefer something else? Choose telephone tones, your own **MP3 or WAV**, or switch call sounds off in **Settings → Voice**. Preview and volume controls are included. [Recording credits and CC0 license](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3/THIRD_PARTY_NOTICES.md).
 
 ## Get started
 
@@ -26,6 +34,6 @@ Download the `.deb` for Debian/Ubuntu or the Linux x86_64 `.tar.gz` below. [Foll
 
 Wake-word detection is off by default and requires the optional English model setup. It runs locally, including during calls with microphone transmission muted; range and sensitivity depend on your microphone, voice, and room. Saved replies stay on your device. DotDial does not archive microphone audio or create transcripts.
 
-Defaults use direct networking and no extra audio buffering. Additional buffering and separate network routes are available in settings when needed. The beta has passed a live two-way call, muted-speaker recording and replay with completed-playback deletion, and real-voice **Hey Dot** activation on a separate Linux installation; wider hardware and desktop feedback is welcome.
+Defaults use direct networking and no extra audio buffering. Additional buffering and separate network routes are available in settings when needed. The initial beta passed a live two-way call, muted-speaker recording and replay with completed-playback deletion, and real-voice **Hey Dot** activation on a separate Linux installation. This update adds isolated delay, crash, storage-failure, and audio-boundary regression checks. Wider hardware and desktop feedback is welcome.
 
 DotDial is an unofficial, experimental community project, not an OpenAI product. It requires an account that already has a dot and uses internal ChatGPT web routes rather than a supported public voice API. Those routes may change or stop working.

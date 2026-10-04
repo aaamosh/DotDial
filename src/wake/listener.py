@@ -11,6 +11,8 @@ import threading
 import time
 from pathlib import Path
 
+from device_selection import WakeDeviceError, resolve_input_device
+
 
 def emit(event, **kwargs):
     print(json.dumps({"event": event, **kwargs}), flush=True)
@@ -21,11 +23,16 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--phrase", required=True)
     parser.add_argument("--sensitivity", type=int, default=6)
+    parser.add_argument("--device-name", default="")
+    parser.add_argument("--device-host-api", default="")
     parser.add_argument("--test-file", help="Offline synthetic/public fixture; never opens a microphone")
     args = parser.parse_args()
     phrase = " ".join(args.phrase.strip().upper().split())
     if not phrase or not phrase.isascii() or len(phrase) > 48 or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '-" for c in phrase):
         emit("error", code="wake_phrase_english_required")
+        return 2
+    if bool(args.device_name) != bool(args.device_host_api):
+        emit("error", code="wake_device_invalid")
         return 2
     try:
         import numpy as np
@@ -40,6 +47,13 @@ def main():
             import sounddevice as sd
         except (ImportError, OSError):
             emit("error", code="wake_audio_dependency_unavailable")
+            return 2
+    input_device = None
+    if not args.test_file:
+        try:
+            input_device = resolve_input_device(sd, args.device_name, args.device_host_api)
+        except WakeDeviceError as error:
+            emit("error", code=error.code)
             return 2
     model = Path(args.model)
     stop = threading.Event()
@@ -99,7 +113,7 @@ def main():
                 samples = np.asarray(data[:,0],dtype=np.float32).copy()
                 try: chunks.put_nowait(samples)
                 except queue.Full: pass
-            with sd.InputStream(samplerate=16000,channels=1,dtype="float32",blocksize=1600,callback=callback):
+            with sd.InputStream(samplerate=16000,channels=1,dtype="float32",blocksize=1600,callback=callback,device=input_device):
                 emit("ready")
                 while not stop.is_set():
                     try: decode(chunks.get(timeout=.2))

@@ -25,7 +25,9 @@
     "phrase": "Hey Dot",
     "sensitivity": 6,
     "modelPath": "",
-    "pythonPath": "python3"
+    "pythonPath": "python3",
+    "deviceName": "",
+    "deviceHostApi": ""
   },
   "recording": {
     "enabled": true,

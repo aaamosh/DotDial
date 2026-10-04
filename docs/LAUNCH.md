@@ -46,7 +46,7 @@ Source, packages, screenshots, and privacy notes: https://github.com/aaamosh/Dot
 
 ## GitHub release short copy
 
-**Title:** DotDial v0.1.0-beta.2 — say “Hey Dot” to call your ChatGPT dot
+**Title:** DotDial v0.1.0-beta.3 — say “Hey Dot” to call your ChatGPT dot
 
 **Description:** A little Linux tray phone for an existing ChatGPT dot. Start an optional hands-free call, then catch replies later with local quiet-mode recordings. No API key or ChatGPT/Codex app required.
 

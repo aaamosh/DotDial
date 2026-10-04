@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml/badge.svg)](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-7de0bb)](LICENSE) ![Linux x64 beta](https://img.shields.io/badge/Linux-x64_beta-91b7d5)
 
-[Download the Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/dotdial_0.1.0-beta.2_amd64.deb) · [Download the Linux x86_64 archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/DotDial-0.1.0-beta.2-linux-x64.tar.gz) · [Release page](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.2) · [SHA-256 checksums](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/SHA256SUMS)
+[Download the Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/dotdial_0.1.0-beta.3_amd64.deb) · [Download the Linux x86_64 archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/DotDial-0.1.0-beta.3-linux-x64.tar.gz) · [Release page](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3) · [SHA-256 checksums](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/SHA256SUMS)
 
 Cooking, stretching, or thinking out loud on the sofa? Call your ChatGPT dot without reaching for your laptop. Once voice activation is set up, say **"Hey Dot"** from wherever your microphone can hear you. DotDial starts the call; you keep doing what you were doing.
 
@@ -46,20 +46,22 @@ These previews use the local synthetic demo, so no real account or conversation 
 
 You need **Linux x86_64** and a ChatGPT account that already has a dot. DotDial is an unofficial community project, not an OpenAI product. This beta uses internal ChatGPT web routes rather than a supported public voice API, so service changes can affect compatibility.
 
-DotDial 0.1.0-beta.2 bundles Electron 44.5.1. The `.deb` is for Debian/Ubuntu; the archive installer works on Linux distributions with the required Electron desktop libraries.
+DotDial 0.1.0-beta.3 bundles Electron 44.5.1. The `.deb` is for Debian/Ubuntu; the archive installer works on Linux distributions with the required Electron desktop libraries.
+
+For an upgrade, choose **Quit** in the tray before installing, then relaunch DotDial. Use the CLI from the same release as the desktop app; older and newer versions must not write the same config concurrently.
 
 ### Debian or Ubuntu
 
 ```sh
-curl -fL -o dotdial_0.1.0-beta.2_amd64.deb https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/dotdial_0.1.0-beta.2_amd64.deb
-sudo apt install ./dotdial_0.1.0-beta.2_amd64.deb
+curl -fL -o dotdial_0.1.0-beta.3_amd64.deb https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/dotdial_0.1.0-beta.3_amd64.deb
+sudo apt install ./dotdial_0.1.0-beta.3_amd64.deb
 ```
 
 ### Other Linux x86_64 distributions
 
 ```sh
-curl -fL -o DotDial-0.1.0-beta.2-linux-x64.tar.gz https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/DotDial-0.1.0-beta.2-linux-x64.tar.gz
-tar -xzf DotDial-0.1.0-beta.2-linux-x64.tar.gz
+curl -fL -o DotDial-0.1.0-beta.3-linux-x64.tar.gz https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/DotDial-0.1.0-beta.3-linux-x64.tar.gz
+tar -xzf DotDial-0.1.0-beta.3-linux-x64.tar.gz
 ./DotDial-linux-x64/install.sh
 ```
 
@@ -67,11 +69,11 @@ The archive installer requests `sudo`, installs under `/opt/dotdial`, and adds a
 
 ### First call
 
-Open **Settings**, paste your dot profile URL, and choose **Save and continue**. Sign in through **Sign in / open ChatGPT** using an account that has access to the dot. Start a call from the tray menu or use the configured hotkey.
+Open **Settings**, paste your dot profile URL, and choose **Save settings**. Sign in through **Sign in / open ChatGPT** using an account that has access to the dot. Start a call from the tray menu or use the configured hotkey.
 
 ### Optional wake word
 
-Wake-word support is disabled by default. To enable it, open **Settings → Voice**, enable the wake word, and choose **Install or check wake-word support**. This downloads the pinned Python dependencies and English model only when requested. Setup requires Python 3, a virtual-environment package, and PortAudio; on Debian/Ubuntu, install them with:
+Wake-word support is disabled by default. To enable it, open **Settings → Voice**, enable the wake word, choose **Save changes**, then choose **Install or check wake-word support**. Saving enables listening after the local model and dependencies are installed; installation alone does not turn wake listening on. The tray indicates when local listening is active. Under **Audio devices**, you can choose a wake input separately from the call microphone; scanning reads PortAudio device names without opening a microphone stream. Setup downloads the pinned Python dependencies and English model only when requested. Setup requires Python 3, a virtual-environment package, and PortAudio; on Debian/Ubuntu, install them with:
 
 ```sh
 sudo apt install python3 python3-venv libportaudio2
@@ -81,7 +83,7 @@ The example phrase is **Hey Dot**. Phrase and sensitivity changes apply immediat
 
 ## Run from source
 
-Requirements: Node.js 22.12 or later, npm, and a Linux x86_64 desktop session.
+Requirements: Node.js 22.12 or later, npm, `flock` from util-linux, and a Linux x86_64 desktop session.
 
 ```sh
 git clone https://github.com/aaamosh/DotDial.git

@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -33,6 +34,8 @@ const DEFAULTS = {
     sensitivity: 6,
     modelPath: '',
     pythonPath: 'python3',
+    deviceName: '',
+    deviceHostApi: '',
   },
   recording: {
     enabled: true,
@@ -216,6 +219,11 @@ function validateConfig(input) {
     invalid('wakeWord.modelPath', 'must be empty or an absolute path');
   }
   requireString(config.wakeWord.pythonPath, 'wakeWord.pythonPath', { min: 1, max: 4096, allowEmpty: false });
+  requireString(config.wakeWord.deviceName, 'wakeWord.deviceName', { max: 256 });
+  requireString(config.wakeWord.deviceHostApi, 'wakeWord.deviceHostApi', { max: 80 });
+  if (Boolean(config.wakeWord.deviceName) !== Boolean(config.wakeWord.deviceHostApi)) {
+    invalid('wakeWord.deviceName', 'and wakeWord.deviceHostApi must both be empty or both be selected');
+  }
 
   requireBoolean(config.recording.enabled, 'recording.enabled');
   requireInteger(config.recording.maxMegabytes, 'recording.maxMegabytes', 1, 8192);
@@ -327,54 +335,84 @@ function pidExists(pid) {
   catch (error) { return error.code === 'EPERM'; }
 }
 
-function sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function initializeLockFile(lockPath) {
+  const tempPath = `${lockPath}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
+  let fd;
+  try {
+    fd = fs.openSync(tempPath, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify({ format: 2, pid: process.pid, createdAt: Date.now() }) + '\n');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    try { fs.linkSync(tempPath, lockPath); }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+  } catch (error) {
+    throw new ConfigError('DOTDIAL_CONFIG_WRITE_FAILED', 'Could not prepare the config lock');
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+    try { fs.unlinkSync(tempPath); } catch {}
+  }
 }
 
 function acquireLock(lockPath, timeoutMs = 2000) {
-  const deadline = Date.now() + timeoutMs;
-  while (true) {
-    let fd;
-    try {
-      fd = fs.openSync(lockPath, 'wx', 0o600);
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw new ConfigError('DOTDIAL_CONFIG_WRITE_FAILED', 'Could not create the config lock');
-      try {
-        const stat = fs.lstatSync(lockPath);
-        const owner = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-        if (Date.now() - stat.mtimeMs > 30_000 && !pidExists(owner.pid)) {
-          fs.unlinkSync(lockPath);
-          continue;
-        }
-      } catch (readError) {
-        if (readError.code === 'ENOENT') continue;
-      }
-      if (Date.now() >= deadline) {
+  initializeLockFile(lockPath);
+  let fd;
+  try {
+    fd = fs.openSync(lockPath, fs.constants.O_RDWR | (fs.constants.O_NOFOLLOW || 0));
+  } catch (error) {
+    if (error.code === 'ELOOP') throw new ConfigError('DOTDIAL_CONFIG_LOCK_INVALID', 'Config lock must not be a symbolic link');
+    throw new ConfigError('DOTDIAL_CONFIG_WRITE_FAILED', 'Could not open the config lock');
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new ConfigError('DOTDIAL_CONFIG_LOCK_INVALID', 'Config lock must be a regular file');
+    const locked = spawnSync('flock', ['-x', '-w', String(timeoutMs / 1000), '3'], {
+      stdio: ['ignore', 'ignore', 'ignore', fd],
+      timeout: timeoutMs + 1000,
+      windowsHide: true,
+    });
+    if (locked.error?.code === 'ENOENT') {
+      throw new ConfigError('DOTDIAL_CONFIG_LOCK_UNAVAILABLE', 'The system flock utility is required to save settings');
+    }
+    if (locked.error || locked.status !== 0) {
+      throw new ConfigError('DOTDIAL_CONFIG_BUSY', 'Another configuration update is in progress');
+    }
+
+    let previous;
+    const stat = fs.fstatSync(fd);
+    try { previous = JSON.parse(fs.readFileSync(fd, 'utf8')); } catch { previous = null; }
+    if (previous?.format !== 2) {
+      const ownerPid = Number.isInteger(previous?.pid) && previous.pid > 0 ? previous.pid : null;
+      const ownerAlive = ownerPid !== null && pidExists(ownerPid);
+      const oldEnough = Date.now() - stat.mtimeMs > 30_000;
+      // Older releases used PID JSON without kernel locks. Preserve a live
+      // legacy writer; only recover an unowned malformed file after a grace
+      // period. All new writers serialize stale recovery through flock.
+      if (ownerAlive || (!oldEnough && ownerPid === null)) {
         throw new ConfigError('DOTDIAL_CONFIG_BUSY', 'Another configuration update is in progress');
       }
-      sleepSync(20);
-      continue;
     }
-    try {
-      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
-      fs.fsyncSync(fd);
-      return fd;
-    } catch {
-      try { fs.closeSync(fd); } catch {}
-      try { fs.unlinkSync(lockPath); } catch {}
-      throw new ConfigError('DOTDIAL_CONFIG_WRITE_FAILED', 'Could not write the config lock');
-    }
+
+    fs.ftruncateSync(fd, 0);
+    fs.writeSync(fd, JSON.stringify({ format: 2, pid: process.pid, createdAt: Date.now() }) + '\n', 0, 'utf8');
+    fs.fsyncSync(fd);
+    return fd;
+  } catch (error) {
+    try { fs.closeSync(fd); } catch {}
+    if (error instanceof ConfigError) throw error;
+    throw new ConfigError('DOTDIAL_CONFIG_WRITE_FAILED', 'Could not acquire the config lock');
   }
 }
 
 function ensurePrivateDir(directory) {
   try {
+    // New application-owned config directories are created private. A custom
+    // config may live in an existing directory owned by the user, so do not
+    // silently change that directory's permissions.
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     const stat = fs.lstatSync(directory);
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
       throw new ConfigError('DOTDIAL_CONFIG_DIR_UNSAFE', 'Config directory must be a real directory');
     }
-    fs.chmodSync(directory, 0o700);
   } catch (error) {
     if (error instanceof ConfigError) throw error;
     throw new ConfigError('DOTDIAL_CONFIG_WRITE_FAILED', 'Could not prepare a private config directory');
@@ -421,10 +459,7 @@ function saveConfig(file, input, { expectedHash } = {}) {
     throw new ConfigError('DOTDIAL_CONFIG_WRITE_FAILED', 'Could not atomically save the configuration');
   } finally {
     if (tempPath) { try { fs.unlinkSync(tempPath); } catch {} }
-    if (lockFd !== undefined) {
-      try { fs.closeSync(lockFd); } catch {}
-      try { fs.unlinkSync(lockPath); } catch {}
-    }
+    if (lockFd !== undefined) { try { fs.closeSync(lockFd); } catch {} }
   }
 }
 

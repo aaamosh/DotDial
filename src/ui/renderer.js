@@ -7,7 +7,7 @@ const view = new URLSearchParams(location.search).get('view') || 'settings';
 
 const COPY = {
   en: {
-    desktopCompanion: 'DESKTOP COMPANION', yourAssistant: 'YOUR ASSISTANT', notConnected: 'Not connected',
+    desktopCompanion: 'DESKTOP COMPANION', yourAssistant: 'YOUR ASSISTANT', notConnected: 'Not connected', accountUnverified: 'Sign-in not verified', accountVerified: 'Account verified',
     connect: 'Connect', voice: 'Voice', appearance: 'Appearance', advanced: 'Advanced', ready: 'Ready',
     settings: 'Settings', openChatGPT: 'Open ChatGPT', saveChanges: 'Save changes', connection: 'CONNECTION',
     connectYourDot: 'Connect your Dot', connectIntro: 'Give DotDial the link to your assistant. Sign in once in its own private window.',
@@ -16,7 +16,7 @@ const COPY = {
     dotNameHint: 'This name appears in the tray and call panel.', expectedAccount: 'Account email (optional)',
     expectedAccountHint: 'Used to help you check you signed in to the right account.', dotLink: 'Dot link', paste: 'Paste',
     dotLinkHint: 'Use the link from your Dot profile. DotDial opens it in a separate signed-in window.',
-    saveAndContinue: 'Save and continue', signInOpenChatGPT: 'Sign in / open ChatGPT',
+    saveProfile: 'Save settings', signInOpenChatGPT: 'Sign in / open ChatGPT',
     privacyNote: 'Sign in with your ChatGPT account. Your password is never stored in this configuration file.',
     wakeWordTitle: 'Hands-free wake word', wakeWordIntro: 'Keep wake-word listening on while the tray shows its listening state.',
     configureVoice: 'Configure voice', audioTitle: 'Clear, local audio', audioIntro: 'Choose your microphone, speakers and playback buffer.', audioSettings: 'Audio settings',
@@ -26,9 +26,13 @@ const COPY = {
     sensitivityHint: 'Higher sensitivity can wake up more often by mistake.', wakeModel: 'Recognition model',
     wakeModelHint: 'DotDial can install the local model and its dependencies.', installWakeModel: 'Install or check wake-word support',
     pythonPath: 'Python interpreter', pythonPathHint: 'Used only by local wake-word support. Example: python3.',
-    audioDevices: 'Audio devices', deviceHelp: 'Device names are requested only when you press Scan devices.',
+    audioDevices: 'Audio devices', deviceHelp: 'Call device names are requested only when you press Scan devices.',
     scanDevices: 'Scan devices', systemDefault: 'System default', microphone: 'Microphone',
-    microphoneHint: 'Used for calls. Wake word uses the system default input.', speakers: 'Speakers', speakersHint: 'Choose where Dot’s voice plays.',
+    microphoneHint: 'Used for calls. Wake word has a separate input selector.', speakers: 'Speakers', speakersHint: 'Choose where Dot’s voice plays.',
+    wakeInput: 'Wake-word input (optional)', wakeInputHint: 'This selects a PortAudio device for local wake recognition only.',
+    wakeInputScanLabel: 'Wake-word input list', scanWakeDevices: 'Scan wake inputs', wakeDevicesFound: 'Wake inputs updated.',
+    wakeDevicesEmpty: 'No named wake inputs found. System default remains selected.', wakeDevicesUnavailable: 'Could not list wake inputs. System default remains available.',
+    wakeDeviceMissing: 'Saved wake input is unavailable. Choose another input or System default.', wakeDeviceAmbiguous: 'This device name is ambiguous in PortAudio; choose another input.',
     playbackBuffer: 'Playback buffer', bufferHelp: 'A short reserve can smooth choppy networks. Larger values add a little delay.',
     lowestDelay: 'Lowest delay', balanced: 'Balanced', custom: 'Custom', callSounds: 'Call sounds',
     playCallSounds: 'Play connect and disconnect sounds', soundVolume: 'Sound volume',
@@ -66,13 +70,14 @@ const COPY = {
     playingMissed: 'Playing missed replies', errorState: 'Needs attention', playMissed: 'Play missed replies', stopMissed: 'Stop missed replies', endCall: 'End call',
     muteMicrophone: 'Mute microphone', unmuteMicrophone: 'Unmute microphone', muteSpeakers: 'Mute speakers', unmuteSpeakers: 'Unmute speakers',
     saveSuccess: 'Settings saved.', saveFailed: 'Could not save settings.', configConflict: 'Settings changed elsewhere. Reload them before saving.',
+    saveWakeBeforeSetup: 'Save the wake-word settings before installing support.',
     invalidDotUrl: 'Enter a link from chatgpt.com/dots/…', invalidEmail: 'Enter a valid email address or leave the field empty.',
     invalidLauncher: 'Launcher settings must be a JSON array of text arguments.', invalidNumber: 'Check the highlighted number fields.',
     pasteUnavailable: 'Clipboard access was not available.', clipboardPasted: 'Link pasted.', reloadDone: 'Latest settings loaded.',
     devicesFound: 'Device list updated.', devicesEmpty: 'No named devices found. System default is still available.',
     devicesUnavailable: 'Could not list devices. System default remains selected.', scanPermission: 'Scanning lists device names; it does not start the microphone.',
     wakeSetupStarted: 'Checking local wake-word support…', wakeSetupDone: 'Wake-word support is ready.', wakeSetupFailed: 'Wake-word setup did not complete.',
-    wakeStatusListening: 'Wake word is listening locally.', wakeStatusPaused: 'Wake-word listening is paused during idle playback.', wakeStatusRequired: 'Install wake-word support to start listening.', wakeStatusError: 'Wake-word service needs attention.',
+    wakeStatusDisabled: 'Wake word is off. Enable it and save settings to start local listening.', wakeStatusListening: 'Wake word is listening locally.', wakeStatusPaused: 'Wake-word listening is paused during idle playback.', wakeStatusRequired: 'Install wake-word support to start listening.', wakeStatusError: 'Wake-word service needs attention.',
     menuShown: 'Tray menu opened.', controlFailed: 'That control is unavailable right now.',
     clearTitle: 'Clear missed replies?', clearBody: 'This permanently deletes saved replies that have not been fully played.',
     accountOpen: 'ChatGPT sign-in opened.',
@@ -93,7 +98,7 @@ const DEFAULTS = {
   dot: { url: '', displayName: 'My dot', expectedEmail: '' },
   general: { startAtLogin: false, hotkey: 'CommandOrControl+Alt+Space' },
   audio: { bufferMs: 0, microphoneDeviceId: 'default', outputDeviceId: 'default', sounds: true, connectionSound: 'modem', customSoundPath: '', soundVolume: .55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false },
-  wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3' },
+  wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '' },
   recording: { enabled: true, maxMegabytes: 200 },
   appearance: { theme: 'system', panelOpacity: .86, showPanel: true, language: 'en' },
   network: { signalingProxy: '', signalingLauncher: [], mediaLauncher: [] },
@@ -106,6 +111,7 @@ let configHash = '';
 let unsaved = false, configLoading = false;
 let latestSnapshot = {};
 let knownDevices = { inputs: [], outputs: [] };
+let knownWakeDevices = [];
 let toastTimer = null;
 let selectedSoundPath = '';
 let soundPreviewActive = false;
@@ -193,6 +199,25 @@ function setSelectOptions(select, rows, selected, kind) {
   }
   select.value = selected || 'default';
 }
+function wakeDeviceKey(name, hostApi) { return JSON.stringify([name, hostApi]); }
+function setWakeDeviceOptions(rows, selectedName = '', selectedHostApi = '') {
+  const select = $('#wake-input');
+  if (!select) return;
+  const selected = selectedName && selectedHostApi ? wakeDeviceKey(selectedName, selectedHostApi) : 'default';
+  select.replaceChildren(new Option(copy('systemDefault'), 'default'));
+  for (const device of Array.isArray(rows) ? rows : []) {
+    if (typeof device?.name !== 'string' || !device.name || typeof device?.hostApi !== 'string' || !device.hostApi) continue;
+    const value = wakeDeviceKey(device.name, device.hostApi);
+    const option = new Option(`${device.name} — ${device.hostApi}${device.ambiguous ? ` · ${copy('wakeDeviceAmbiguous')}` : ''}`, value);
+    option.disabled = device.ambiguous === true;
+    select.append(option);
+  }
+  if (selected !== 'default' && ![...select.options].some(option => option.value === selected)) {
+    const option = new Option(`${selectedName} — ${selectedHostApi} · ${copy('wakeDeviceMissing')}`, selected);
+    select.append(option);
+  }
+  select.value = selected;
+}
 function fillForm(config) {
   const merged = mergeDefaults(config || {}, DEFAULTS);
   loadedConfig = merged; unsaved = false;
@@ -229,6 +254,7 @@ function fillForm(config) {
   check('recording-enabled', merged.recording.enabled);
   setSelectOptions($('#audio-microphone'), knownDevices.inputs, merged.audio.microphoneDeviceId || 'default', 'input');
   setSelectOptions($('#audio-output'), knownDevices.outputs, merged.audio.outputDeviceId || 'default', 'output');
+  setWakeDeviceOptions(knownWakeDevices, merged.wakeWord.deviceName, merged.wakeWord.deviceHostApi);
   $$('button[data-theme]').forEach(button => button.classList.toggle('selected', button.dataset.theme === merged.appearance.theme));
   setBufferPreset(merged.audio.bufferMs);
   $('#wake-fields').classList.toggle('fields-disabled', !merged.wakeWord.enabled);
@@ -248,7 +274,7 @@ function setBufferPreset(value) {
 }
 function setWakeControls(enabled) {
   $$('#wake-fields input, #wake-fields select, #wake-fields textarea, #wake-fields button').forEach(control => {
-    if (control.id !== 'wake-setup') control.disabled = !enabled;
+    if (!['wake-setup', 'wake-input', 'scan-wake-devices'].includes(control.id)) control.disabled = !enabled;
   });
 }
 function setSoundControls(enabled) {
@@ -410,6 +436,17 @@ function takeForm() {
   config.wakeWord.modelPath = $('#wake-model-path').value.trim().slice(0, 4096);
   if (config.wakeWord.modelPath && !config.wakeWord.modelPath.startsWith('/')) throw new Error('invalid_model_path');
   config.wakeWord.pythonPath = $('#wake-python-path').value.trim().slice(0, 4096) || 'python3';
+  const wakeDevice = $('#wake-input').value || 'default';
+  if (wakeDevice === 'default') {
+    config.wakeWord.deviceName = '';
+    config.wakeWord.deviceHostApi = '';
+  } else {
+    let selected;
+    try { selected = JSON.parse(wakeDevice); } catch { throw new Error('invalid_wake_device'); }
+    if (!Array.isArray(selected) || selected.length !== 2 || selected.some(value => typeof value !== 'string' || !value)) throw new Error('invalid_wake_device');
+    config.wakeWord.deviceName = selected[0];
+    config.wakeWord.deviceHostApi = selected[1];
+  }
   config.recording.enabled = $('#recording-enabled').checked;
   config.recording.maxMegabytes = Math.round(numeric('recording-max-mb', 1, 8192));
   config.appearance.theme = document.querySelector('button[data-theme].selected')?.dataset.theme || 'system';
@@ -441,15 +478,15 @@ async function loadConfig({ quiet = false } = {}) {
   finally { configLoading = false; }
 }
 async function saveForm() {
-  if (!api) return;
-  if (!await ensureCustomSoundSelected()) return;
+  if (!api) return false;
+  if (!await ensureCustomSoundSelected()) return false;
   let config;
   try { config = takeForm(); }
   catch (error) {
     const alert = $('#connect-error');
     alert.textContent = explainError(error); alert.hidden = false;
     toast(explainError(error), 'error');
-    return;
+    return false;
   }
   $('#connect-error').hidden = true;
   $('#save-status').textContent = 'Saving…';
@@ -460,17 +497,19 @@ async function saveForm() {
       $('#save-status').textContent = conflict ? copy('configConflict') : copy('saveFailed');
       $('#reload-config').hidden = !conflict;
       toast(conflict ? copy('configConflict') : copy('saveFailed'), 'error');
-      return;
+      return false;
     }
     configHash = result.hash;
     fillForm(result.config);
     toast(copy('saveSuccess'));
     const status = $('#connect-status'); status.textContent = copy('saveSuccess'); status.classList.add('success');
+    return true;
   } catch (error) {
     const conflict = ['config_conflict', 'revision_mismatch', 'DOTDIAL_CONFIG_CONFLICT'].includes(error?.code);
     $('#save-status').textContent = conflict ? copy('configConflict') : copy('saveFailed');
     $('#reload-config').hidden = !conflict;
     toast(conflict ? copy('configConflict') : copy('saveFailed'), 'error');
+    return false;
   }
 }
 async function runCommand(name, { notice = false } = {}) {
@@ -505,14 +544,36 @@ async function scanDevices() {
     status.textContent = copy('devicesUnavailable'); status.className = 'status-note devices-status error';
   }
 }
+async function scanWakeDevices() {
+  const status = $('#wake-devices-status');
+  status.textContent = copy('scanPermission'); status.className = 'field-hint';
+  try {
+    const result = await runCommand('WAKE_DEVICES');
+    if (result?.status !== 'wake_devices_listed' || !Array.isArray(result.inputs)) throw new Error('wake_devices_unavailable');
+    knownWakeDevices = result.inputs;
+    const [selectedName, selectedHostApi] = (() => {
+      try {
+        const selected = JSON.parse($('#wake-input').value || '"default"');
+        return Array.isArray(selected) && selected.length === 2 ? selected : ['', ''];
+      } catch { return ['', '']; }
+    })();
+    setWakeDeviceOptions(knownWakeDevices, selectedName, selectedHostApi);
+    const namedInputs = knownWakeDevices.filter(device => device && typeof device.name === 'string').length;
+    status.textContent = namedInputs ? copy('wakeDevicesFound') : copy('wakeDevicesEmpty');
+    status.className = `field-hint${namedInputs ? ' success' : ''}`;
+  } catch {
+    status.textContent = copy('wakeDevicesUnavailable'); status.className = 'field-hint error';
+  }
+}
 function updateSidebar(config, state) {
   const name = String(config?.dot?.displayName || 'My dot').slice(0, 100);
   $('#sidebar-dot-name').textContent = name;
-  const account = String(config?.dot?.expectedEmail || '').trim();
-  $('#sidebar-account').textContent = account || copy('notConnected');
-  const dot = $('#sidebar-status-dot');
+  const verified = state?.identity_verified === true;
+  const account = verified ? String(state.verified_email || '').trim() : '';
   const hasDot = Boolean(config?.dot?.url);
-  dot.classList.toggle('ready', hasDot && !state.last_error);
+  $('#sidebar-account').textContent = account || (verified ? copy('accountVerified') : hasDot ? copy('accountUnverified') : copy('notConnected'));
+  const dot = $('#sidebar-status-dot');
+  dot.classList.toggle('ready', hasDot && verified && !state.last_error);
   dot.classList.toggle('error', Boolean(state.last_error || state.start_error));
 }
 function phaseText(state) {
@@ -587,6 +648,7 @@ function updateSettingsState(state = {}) {
   const wakeStatus = $('#wake-setup-status');
   if (wakeStatus && state.wake_status) {
     const messages = {
+      disabled: ['wakeStatusDisabled', ''],
       listening: ['wakeStatusListening', 'success'],
       starting: ['wakeSetupStarted', ''],
       installing: ['wakeSetupStarted', ''],
@@ -662,10 +724,16 @@ function setupSettings() {
   $('#login-connect').addEventListener('click', async () => { await runCommand('LOGIN'); toast(copy('accountOpen')); });
   $('#paste-dot-link').addEventListener('click', pasteDotLink);
   $('#scan-devices').addEventListener('click', scanDevices);
+  $('#scan-wake-devices').addEventListener('click', scanWakeDevices);
   $('#choose-sound-file').addEventListener('click', () => { void selectCustomSound(); });
   $('#preview-sound').addEventListener('click', () => { void playSoundPreview(); });
   $('#stop-sound-preview').addEventListener('click', () => { void stopSoundPreview(); });
   $('#wake-setup').addEventListener('click', async () => {
+    if (unsaved && !await saveForm()) {
+      $('#wake-setup-status').textContent = copy('saveWakeBeforeSetup');
+      $('#wake-setup-status').className = 'status-note error';
+      return;
+    }
     $('#wake-setup-status').textContent = copy('wakeSetupStarted');
     const result = await runCommand('WAKE_SETUP');
     if (['wake_setup_started', 'wake_setup_running'].includes(result?.status)) {

@@ -35,6 +35,7 @@ const until = async (fn, message) => {
 };
 const script = (w, js) => w.webContents.executeJavaScript(js, true);
 const observedCommands = [];
+const wakeSetupConfigs = [];
 const trayMenus = [];
 const popupMenus = [];
 const menuShape = menu => (menu?.items || []).map(item => ({ type: item.type || 'normal', label: item.label || '', enabled: item.enabled !== false }));
@@ -42,6 +43,7 @@ const originalHandle = ipcMain.handle;
 ipcMain.handle = function (channel, listener) {
   return originalHandle.call(this, channel, async (event, ...args) => {
     if (channel === IPC.command) observedCommands.push(String(args[0] || ''));
+    if (channel === IPC.command && args[0] === 'WAKE_SETUP') wakeSetupConfigs.push(JSON.parse(fs.readFileSync(demoConfig)));
     return listener(event, ...args);
   });
 };
@@ -148,6 +150,26 @@ void (async () => {
   demoConfig = envelope.path;
   assert.equal(envelope.config.audio.bufferMs, 0);
   assert.equal(envelope.config.wakeWord.enabled, false);
+  assert.match(await script(settings, 'document.querySelector("#save-connect").textContent'), /Save settings/);
+  await script(settings, `(async () => {
+    const value = await window.dotdial.readConfig();
+    value.config.dot.url = 'https://chatgpt.com/dots/00000000-0000-4000-8000-000000000001';
+    value.config.dot.expectedEmail = 'configured@example.com';
+    await window.dotdial.saveConfig(value.config, value.hash);
+  })()`);
+  await until(() => script(settings, 'document.querySelector("#dot-url").value.includes("00000000")'), 'account_fixture_not_loaded');
+  settings.webContents.send(IPC.state, { state: 'ready', identity_verified: false, verified_email: null });
+  await until(() => script(settings, '/not verified/i.test(document.querySelector("#sidebar-account").textContent)'), 'unverified_account_not_distinguished');
+  settings.webContents.send(IPC.state, { state: 'active', identity_verified: true, verified_email: 'verified@example.com' });
+  await until(() => script(settings, 'document.querySelector("#sidebar-account").textContent === "verified@example.com"'), 'verified_account_not_shown');
+  settings.webContents.send(IPC.state, { state: 'ready', identity_verified: false, verified_email: null });
+  await until(() => script(settings, '/not verified/i.test(document.querySelector("#sidebar-account").textContent)'), 'old_account_identity_retained');
+  await script(settings, `(async () => {
+    const value = await window.dotdial.readConfig();
+    value.config.dot.url = ''; value.config.dot.expectedEmail = '';
+    await window.dotdial.saveConfig(value.config, value.hash);
+  })()`);
+  await until(() => script(settings, 'document.querySelector("#dot-url").value === ""'), 'account_fixture_not_cleared');
   // UI -> file -> runtime. Also prove stale writes cannot overwrite file edits.
   await script(settings, `document.querySelector('#dot-display-name').value = 'Nova'; document.querySelector('#dot-display-name').dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('#top-save').click();`);
   await until(() => JSON.parse(fs.readFileSync(demoConfig)).dot.displayName === 'Nova', 'ui_save_failed');
@@ -203,6 +225,12 @@ void (async () => {
   assert.equal((await script(settings, 'window.dotdial.readConfig()')).config.audio.connectionSound, 'custom');
   await script(settings, 'document.querySelector("#audio-connection-sound").value="modem";document.querySelector("#top-save").click()');
   await until(async () => (await script(settings, 'window.dotdial.readConfig()')).config.audio.connectionSound === 'modem', 'modem_choice_not_restored');
+  await script(settings, 'document.querySelector("#wake-enabled").checked = true; document.querySelector("#wake-enabled").dispatchEvent(new Event("change", {bubbles: true})); document.querySelector("#wake-setup").click()');
+  await until(() => wakeSetupConfigs.length === 1, 'wake_setup_not_dispatched');
+  assert.equal(wakeSetupConfigs[0].wakeWord.enabled, true, 'wake_setup_uses_saved_enable_choice');
+  assert.equal((await script(settings, 'window.dotdial.command("WAKE_DEVICES")')).status, 'wake_devices_listed');
+  await script(settings, 'document.querySelector("#wake-enabled").checked = false; document.querySelector("#wake-enabled").dispatchEvent(new Event("change", {bubbles: true})); document.querySelector("#top-save").click()');
+  await until(async () => (await script(settings, 'window.dotdial.readConfig()')).config.wakeWord.enabled === false, 'wake_default_not_restored');
   const devices = await script(settings, 'window.dotdial.getAudioDevices()');
   assert.equal(devices.inputs[0].id, 'default');
   await script(settings, 'window.dotdial.command("WAKE")');
@@ -333,7 +361,7 @@ void (async () => {
   await until(() => previewPlayers.length > playersBeforeClose, 'closing_preview_missing');
   settings.close();
   await until(() => previewPlayers.at(-1).killed, 'settings_close_left_sound_playing');
-  console.log(JSON.stringify({ result: 'passed', mode: 'synthetic_preview', checks: ['settings_geometry_and_work_area', 'pending_call_settings_copy', 'ui_config_write', 'external_json_reload', 'conflict_protection', 'invalid_json_recovery', 'connection_sound_save', 'custom_file_choose', 'preview_and_stop', 'custom_decode_and_preview', 'cancel_file_choose', 'wake_phrase_live_during_active_call', 'controls', 'panel_lifecycle', 'transparent_corners', 'three_controls', 'speaker_badge', 'native_click_and_drag', 'context_menu_everywhere', 'native_menu_action_without_tray_popup', 'replay_stop'], screenshots: output, comparisons }));
+  console.log(JSON.stringify({ result: 'passed', mode: 'synthetic_preview', checks: ['settings_geometry_and_work_area', 'pending_call_settings_copy', 'ui_config_write', 'verified_account_identity', 'save_settings_label', 'wake_setup_saves_before_install', 'wake_device_scan', 'external_json_reload', 'conflict_protection', 'invalid_json_recovery', 'connection_sound_save', 'custom_file_choose', 'preview_and_stop', 'custom_decode_and_preview', 'cancel_file_choose', 'wake_phrase_live_during_active_call', 'controls', 'panel_lifecycle', 'transparent_corners', 'three_controls', 'speaker_badge', 'native_click_and_drag', 'context_menu_everywhere', 'native_menu_action_without_tray_popup', 'replay_stop'], screenshots: output, comparisons }));
   app.quit();
 })().catch(error => { console.error('UI_SMOKE_FAILED', error.message); app.exit(1); });
 setTimeout(() => { console.error('UI_SMOKE_TIMEOUT'); app.exit(2); }, 55000).unref();

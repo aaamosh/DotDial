@@ -43,6 +43,7 @@ export class DotVoiceSession {
     this.accountId = null;
     this.callId = null;
     this.creationAttempted = false;
+    this.creationOutcome = 'not_sent';
     this.timings = {};
   }
 
@@ -60,8 +61,10 @@ export class DotVoiceSession {
       throw new DotVoiceError("account_changed_during_call");
     }
     this.accountId ??= identity.accountId;
+    const creating = method === 'POST' && apiPath.endsWith('/voice/calls');
     let response;
     try {
+      if (creating) this.creationOutcome = 'unknown';
       response = await this.fetch(`${API_ORIGIN}/backend-api${apiPath}`, {
         method,
         redirect: "error",
@@ -74,13 +77,20 @@ export class DotVoiceSession {
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-    } catch {
+    } catch (error) {
       // Fetch errors may embed request details. Never forward them or headers.
+      // The browser bridge can prove its identity check failed before fetch.
+      // An execution/transport failure without that proof remains ambiguous.
+      if (error?.requestOutcome === 'not_sent') {
+        if (creating) this.creationOutcome = 'not_sent';
+        throw new DotVoiceError('request_not_sent');
+      }
       throw new DotVoiceError(method === "POST" ? "request_outcome_unknown" : "connection_failed");
     }
     const phase = method === 'GET' ? 'profile' : apiPath.endsWith('/attach') ? 'attach' : apiPath.endsWith('/stop') ? 'stop' : 'create';
     this.timings[phase] = { identity_ms: identityMs, total_ms: Math.round(performance.now() - started), ...response.dotdialTimings };
     if (!response.ok) {
+      if (creating && response.status >= 400 && response.status < 500) this.creationOutcome = 'rejected';
       const challenged = response.headers.get("cf-mitigated") === "challenge";
       const error = new DotVoiceError(challenged ? "web_verification_required" : "api_request_rejected", response.status);
       if (!challenged && response.headers.get('content-type')?.includes('json')) {
@@ -122,6 +132,7 @@ export class DotVoiceSession {
     const callId = url.pathname.split("/").at(-1);
     if (!/^[A-Za-z0-9_-]{1,200}$/.test(callId)) throw new DotVoiceError("invalid_call_id");
     this.callId = callId;
+    this.creationOutcome = 'created';
     const answerSdp = await response.text();
     if (!answerSdp.startsWith("v=0")) throw new DotVoiceError("invalid_sdp_answer");
     return { answerSdp };
