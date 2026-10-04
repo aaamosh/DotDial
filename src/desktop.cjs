@@ -495,7 +495,13 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
     try { return await stopSoundPreview(); }
     catch (error) { return soundFailure(error); }
   });
-  handle(IPC.menu, async () => { tray?.popUpContextMenu(buildContextMenu()); return { status: 'shown' }; });
+  handle(IPC.menu, async event => {
+    const owner = windows().find(win => win.webContents === event.sender);
+    // Tray.popUpContextMenu is not supported on Linux. Bind the native menu
+    // to the requesting window, including the panel which never takes focus.
+    buildContextMenu().popup({ window: owner });
+    return { status: 'shown' };
+  });
   handle(IPC.move, (_event, payload) => {
     if (!panel || panel.isDestroyed() || !payload || !Number.isFinite(payload.dx) || !Number.isFinite(payload.dy) || Math.abs(payload.dx) > 500 || Math.abs(payload.dy) > 500) return { status: 'ignored' };
     const [x, y] = panel.getPosition();

@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml/badge.svg)](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-7de0bb)](LICENSE) ![Linux x64 beta](https://img.shields.io/badge/Linux-x64_beta-91b7d5)
 
-[Download the Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.1/dotdial_0.1.0-beta.1_amd64.deb) · [Download the Linux x86_64 archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.1/DotDial-0.1.0-beta.1-linux-x64.tar.gz) · [Release page](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.1) · [SHA-256 checksums](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.1/SHA256SUMS)
+[Download the Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/dotdial_0.1.0-beta.2_amd64.deb) · [Download the Linux x86_64 archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/DotDial-0.1.0-beta.2-linux-x64.tar.gz) · [Release page](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.2) · [SHA-256 checksums](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/SHA256SUMS)
 
 Cooking, stretching, or thinking out loud on the sofa? Call your ChatGPT dot without reaching for your laptop. Once voice activation is set up, say **"Hey Dot"** from wherever your microphone can hear you. DotDial starts the call; you keep doing what you were doing.
 
@@ -46,20 +46,20 @@ These previews use the local synthetic demo, so no real account or conversation 
 
 You need **Linux x86_64** and a ChatGPT account that already has a dot. DotDial is an unofficial community project, not an OpenAI product. This beta uses internal ChatGPT web routes rather than a supported public voice API, so service changes can affect compatibility.
 
-DotDial 0.1.0-beta.1 bundles Electron 44.5.1. The `.deb` is for Debian/Ubuntu; the archive installer works on Linux distributions with the required Electron desktop libraries.
+DotDial 0.1.0-beta.2 bundles Electron 44.5.1. The `.deb` is for Debian/Ubuntu; the archive installer works on Linux distributions with the required Electron desktop libraries.
 
 ### Debian or Ubuntu
 
 ```sh
-curl -fL -o dotdial_0.1.0-beta.1_amd64.deb https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.1/dotdial_0.1.0-beta.1_amd64.deb
-sudo apt install ./dotdial_0.1.0-beta.1_amd64.deb
+curl -fL -o dotdial_0.1.0-beta.2_amd64.deb https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/dotdial_0.1.0-beta.2_amd64.deb
+sudo apt install ./dotdial_0.1.0-beta.2_amd64.deb
 ```
 
 ### Other Linux x86_64 distributions
 
 ```sh
-curl -fL -o DotDial-0.1.0-beta.1-linux-x64.tar.gz https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.1/DotDial-0.1.0-beta.1-linux-x64.tar.gz
-tar -xzf DotDial-0.1.0-beta.1-linux-x64.tar.gz
+curl -fL -o DotDial-0.1.0-beta.2-linux-x64.tar.gz https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.2/DotDial-0.1.0-beta.2-linux-x64.tar.gz
+tar -xzf DotDial-0.1.0-beta.2-linux-x64.tar.gz
 ./DotDial-linux-x64/install.sh
 ```
 

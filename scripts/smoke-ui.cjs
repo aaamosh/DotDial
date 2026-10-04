@@ -7,7 +7,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { promisify } = require('node:util');
 const { execFile } = require('node:child_process');
-const { app, BrowserWindow, ipcMain, nativeImage, Tray, dialog, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage, Tray, Menu, dialog, screen } = require('electron');
 const { IPC } = require('../src/desktop.cjs');
 const execFileAsync = promisify(execFile);
 // Exercise the full preview UI and IPC without using desktop speakers.
@@ -50,10 +50,14 @@ Tray.prototype.setContextMenu = function (menu) {
   trayMenus.push(menuShape(menu));
   return originalSetContextMenu.call(this, menu);
 };
-const originalPopUpContextMenu = Tray.prototype.popUpContextMenu;
-Tray.prototype.popUpContextMenu = function (menu, ...args) {
-  popupMenus.push(menuShape(menu));
-  return originalPopUpContextMenu.call(this, menu, ...args);
+// Some Linux tray hosts ignore programmatic popup requests. The floating
+// panel must still display a native menu and let the user select an action.
+Tray.prototype.popUpContextMenu = function () {};
+const originalBuildFromTemplate = Menu.buildFromTemplate;
+Menu.buildFromTemplate = function (template) {
+  const menu = originalBuildFromTemplate.call(this, template);
+  menu.on('menu-will-show', () => popupMenus.push(menuShape(menu)));
+  return menu;
 };
 const xdotool = (...args) => execFileAsync('xdotool', args.map(String), { timeout: 5000 });
 const queryRuntimeState = () => new Promise((resolve, reject) => {
@@ -268,6 +272,20 @@ void (async () => {
   }
   panel.setPosition(280, 250); await delay(80);
   let commandCount = observedCommands.length;
+  // Select a real menu item with native keyboard input. A call to a tray API
+  // that silently does nothing must not count as a working context menu.
+  for (const expected of ['MUTE', 'UNMUTE']) {
+    const menus = popupMenus.length;
+    await clickAt(301, 271, 3);
+    await until(() => popupMenus.length > menus, 'native_menu_not_shown');
+    await xdotool('key', 'Home', 'Down', 'Return');
+    // Native menu actions dispatch in the main process, without renderer IPC.
+    // Check the actual call state, so merely opening a menu cannot pass.
+    await until(async () => (await queryRuntimeState()).microphone_muted === (expected === 'MUTE'), 'native_menu_mic_state_not_changed');
+    await delay(100);
+  }
+  assert.equal(panel.isFocusable(), false, 'menu_must_not_change_panel_focus_policy');
+  commandCount = observedCommands.length;
   await clickAt(301, 271);
   await until(() => observedCommands.length > commandCount, 'native_mic_click_failed');
   assert.deepEqual(observedCommands.slice(commandCount), ['MUTE']);
@@ -315,7 +333,7 @@ void (async () => {
   await until(() => previewPlayers.length > playersBeforeClose, 'closing_preview_missing');
   settings.close();
   await until(() => previewPlayers.at(-1).killed, 'settings_close_left_sound_playing');
-  console.log(JSON.stringify({ result: 'passed', mode: 'synthetic_preview', checks: ['settings_geometry_and_work_area', 'pending_call_settings_copy', 'ui_config_write', 'external_json_reload', 'conflict_protection', 'invalid_json_recovery', 'connection_sound_save', 'custom_file_choose', 'preview_and_stop', 'custom_decode_and_preview', 'cancel_file_choose', 'wake_phrase_live_during_active_call', 'controls', 'panel_lifecycle', 'transparent_corners', 'three_controls', 'speaker_badge', 'native_click_and_drag', 'context_menu_everywhere', 'replay_stop'], screenshots: output, comparisons }));
+  console.log(JSON.stringify({ result: 'passed', mode: 'synthetic_preview', checks: ['settings_geometry_and_work_area', 'pending_call_settings_copy', 'ui_config_write', 'external_json_reload', 'conflict_protection', 'invalid_json_recovery', 'connection_sound_save', 'custom_file_choose', 'preview_and_stop', 'custom_decode_and_preview', 'cancel_file_choose', 'wake_phrase_live_during_active_call', 'controls', 'panel_lifecycle', 'transparent_corners', 'three_controls', 'speaker_badge', 'native_click_and_drag', 'context_menu_everywhere', 'native_menu_action_without_tray_popup', 'replay_stop'], screenshots: output, comparisons }));
   app.quit();
 })().catch(error => { console.error('UI_SMOKE_FAILED', error.message); app.exit(1); });
 setTimeout(() => { console.error('UI_SMOKE_TIMEOUT'); app.exit(2); }, 55000).unref();

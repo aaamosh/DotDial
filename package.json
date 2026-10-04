@@ -1,7 +1,7 @@
 {
   "name": "dotdial",
   "productName": "DotDial",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "A little phone for your ChatGPT dot. Voice activation, quiet mode and missed replies, built for Linux.",
   "main": "src/main.cjs",
   "license": "MIT",

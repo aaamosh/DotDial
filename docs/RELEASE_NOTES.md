@@ -1,4 +1,6 @@
-# DotDial 0.1.0-beta.1
+# DotDial 0.1.0-beta.2
+
+**Linux fix:** Right-clicking the floating call panel now opens its context menu.
 
 **Say "Hey Dot." Leave the keyboard behind.**
 
@@ -16,7 +18,7 @@ Cooking, stretching, or thinking out loud on the sofa? DotDial lets you call you
 
 The default connection sound is **a real 14.4 kbps modem handshake recorded in 1997**. A small piece of internet history plays while your dot connects and stops when the call is ready.
 
-Love it? Keep it. Prefer something else? Choose telephone tones, your own **MP3 or WAV**, or switch call sounds off in **Settings → Voice**. Preview and volume controls are included. [Recording credits and CC0 license](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.1/THIRD_PARTY_NOTICES.md).
+Love it? Keep it. Prefer something else? Choose telephone tones, your own **MP3 or WAV**, or switch call sounds off in **Settings → Voice**. Preview and volume controls are included. [Recording credits and CC0 license](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.2/THIRD_PARTY_NOTICES.md).
 
 ## Get started
 
