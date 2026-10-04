@@ -78,6 +78,6 @@ test('bundled CLI resolves a path containing spaces without system Node or shell
   assert.equal(result.status, 0, result.error?.message || result.stderr);
   const [nodeMode, script, ...args] = result.stdout.trim().split('\n');
   assert.equal(nodeMode, '1');
-  assert.equal(path.resolve(script), path.join(appSource, 'bin', 'dotdial.cjs'));
+  assert.equal(path.resolve(script), path.join(fs.realpathSync(appSource), 'bin', 'dotdial.cjs'));
   assert.deepEqual(args, ['config', 'set', 'dot.displayName', '"quoted name with spaces"']);
 });

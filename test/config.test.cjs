@@ -162,5 +162,10 @@ test('checked-in schema and example are valid JSON and example satisfies runtime
   const schema = JSON.parse(fs.readFileSync(path.join(productRoot, 'config.schema.json'), 'utf8'));
   const example = JSON.parse(fs.readFileSync(path.join(productRoot, 'config.example.json'), 'utf8'));
   assert.equal(schema.properties.version.const, 1);
-  assert.deepEqual(validateConfig(example), defaults);
+  // The checked-in example has an explicit Linux shortcut. Loading an existing
+  // configuration on macOS must retain it instead of inserting a fresh default.
+  assert.equal(example.general.hotkey, schema.properties.general.properties.hotkey.default);
+  assert.deepEqual(validateConfig(example), {
+    ...defaults, general: { ...defaults.general, hotkey: example.general.hotkey },
+  });
 });

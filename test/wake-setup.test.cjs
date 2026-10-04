@@ -76,6 +76,8 @@ for platform in ["darwin", "linux"]:
         model = data / "models" / m["MODEL"]
         model.mkdir(parents=True)
         (model / "tokens.txt").write_text("existing model")
+        # Setup canonicalizes --data-dir, including macOS /var -> /private/var.
+        resolved_data = data.resolve()
         with mock.patch.object(sys, "version_info", (3, 12, 0)), \\
              mock.patch.object(sys, "platform", platform), \\
              mock.patch.object(m["subprocess"], "run") as run, \\
@@ -84,9 +86,9 @@ for platform in ["darwin", "linux"]:
             m["main"](["--data-dir", str(data), "--stdin-audio"])
             download.assert_not_called()
         assert run.call_count == 2, run.call_args_list
-        assert run.call_args_list[0].args[0] == [sys.executable, "-m", "venv", str(data / "wake-venv")]
+        assert run.call_args_list[0].args[0] == [sys.executable, "-m", "venv", str(resolved_data / "wake-venv")]
         assert run.call_args_list[1].args[0] == [
-            str(data / "wake-venv/bin/python"), "-m", "pip", "install", "--disable-pip-version-check",
+            str(resolved_data / "wake-venv/bin/python"), "-m", "pip", "install", "--disable-pip-version-check",
             *m["dependency_args"](True, platform),
         ]
 `);
@@ -122,7 +124,7 @@ for outcome, expected in scenarios:
             download.assert_not_called()
         assert run.call_count == 1, run.call_args_list
         assert run.call_args.kwargs["timeout"] == 5
-        assert run.call_args.args[0][:2] == [str(python), "-c"]
+        assert run.call_args.args[0][:2] == [str(data.resolve() / "wake-venv/bin/python"), "-c"]
         assert expected in errors.getvalue(), errors.getvalue()
         assert "Recreate" in errors.getvalue(), errors.getvalue()
         assert "--data-dir" in errors.getvalue(), errors.getvalue()
@@ -144,9 +146,9 @@ with tempfile.TemporaryDirectory() as root:
         m["main"](["--data-dir", str(data)])
         download.assert_not_called()
     assert run.call_count == 2
-    assert run.call_args_list[0].args[0][:2] == [str(python), "-c"]
+    assert run.call_args_list[0].args[0][:2] == [str(data.resolve() / "wake-venv/bin/python"), "-c"]
     assert run.call_args_list[0].kwargs["timeout"] == 5
-    assert run.call_args_list[1].args[0][:4] == [str(python), "-m", "pip", "install"]
+    assert run.call_args_list[1].args[0][:4] == [str(data.resolve() / "wake-venv/bin/python"), "-m", "pip", "install"]
 `);
 
 pythonTest('a supplied wake archive still must match SHA-256 before extraction or model publication', `
