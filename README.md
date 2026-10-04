@@ -2,39 +2,51 @@
 
 # DotDial
 
-**A little phone for your ChatGPT dot. Say "Hey Dot" and start talking.**
+**Say "Hey Dot." Leave the keyboard behind.**
 
 [![CI](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml/badge.svg)](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-7de0bb)](LICENSE) ![Linux x64 beta](https://img.shields.io/badge/Linux-x64_beta-91b7d5)
 
 [Download the Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.1/dotdial_0.1.0-beta.1_amd64.deb) · [Download the Linux x86_64 archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.1/DotDial-0.1.0-beta.1-linux-x64.tar.gz) · [Release page](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.1) · [SHA-256 checksums](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.1/SHA256SUMS)
 
-DotDial is a small Linux tray app with voice activation, quiet mode, and missed replies. One ordinary JSON file holds all settings, so your coding agent can configure it with its usual file tools. ChatGPT and Codex do not need to be installed or running.
+Cooking, stretching, or thinking out loud on the sofa? Call your ChatGPT dot without reaching for your laptop. Once voice activation is set up, say **"Hey Dot"** from wherever your microphone can hear you. DotDial starts the call; you keep doing what you were doing.
 
-This is an experimental, unofficial companion. It signs in to your existing ChatGPT account in its own window and calls a dot already available to that account. It is not an OpenAI product. The call adapter uses internal ChatGPT web routes, not a supported public voice API, so it can stop working when the web client changes. No API key is required.
+DotDial lives in your Linux tray, ready when you are. ChatGPT and Codex do not need to be installed or running. Sign in with the account that already has your dot; no API key is required.
 
-## Preview
+**Voice when your hands are busy. Saved replies when your ears are busy. A little 1997 while the call connects.**
 
-These images show the local synthetic demo. They are not live calls or real account screens.
+## More conversation, less reaching for the laptop
+
+- **Your voice is the call button.** Enable the optional offline English wake word and call from the kitchen counter, the sofa, or across the room, within your microphone's range. Use **Hey Dot** or choose your own supported English phrase. Tray and hotkey controls are there too.
+- **Mute now. Catch up later.** Need the room quiet? Mute DotDial's speakers and let it save incoming replies locally while recording is enabled. Play them all back in order when you are ready. Fully played replies delete themselves, like an answering machine that tidies up after you.
+- **Come back with a word.** During a call, the wake phrase turns a muted microphone and speakers back on, with a short confirmation sound. You can rejoin the conversation without touching the laptop.
+- **Three buttons, right where you left them.** A small floating panel gives you microphone mute, speaker mute, and hang up. Drag it where it suits you; it remembers its position next time.
+- **Easy for you. Easy for your agent.** Use the settings window or let your coding agent edit one ordinary [JSON file](docs/AGENT.md) with its usual tools. The local CLI can also check call status, call, hang up, mute, and replay missed replies.
+
+Wake-word support is off by default. [Set it up once](#optional-wake-word), then leave DotDial running in the tray. Recognition happens on your device; how far away you can speak depends on your microphone and the room. While enabled, the recognizer also listens during calls with microphone transmission muted. See [Privacy](docs/PRIVACY.md) for details.
+
+## Your AI has a dial-up phase
+
+That sound while the call connects? **A real 14.4 kbps modem handshake, recorded in 1997.** The original recording plays by default, bringing a small piece of dial-up history to your next conversation. It stops as soon as the call connects.
+
+Love the nostalgia? Leave it on. Prefer something else? In **Settings → Voice**, switch to telephone tones, choose your own **MP3 or WAV**, or turn call sounds off. There is a preview and volume control, so you can find a sound you actually enjoy.
+
+[Listen to the original recording](https://archive.org/details/14400_201912) · [Recording credits and CC0 license](THIRD_PARTY_NOTICES.md)
+
+## A small app for the way you talk
+
+These previews use the local synthetic demo, so no real account or conversation is shown.
+
+![Floating call panel: microphone, speakers, and hang up](docs/images/panel.png)
 
 ![DotDial settings](docs/images/settings.png)
 
-![Voice controls](docs/images/voice.png)
-
-![Floating call panel](docs/images/panel.png)
-
-## Features
-
-- Start calls from the tray or the default `Ctrl+Alt+Space` shortcut. Optional offline English wake-word support is off by default.
-- Mute the microphone and speakers independently from the tray or floating call panel.
-- Save incoming replies as local WAV files while speakers are muted and recording is enabled. Replay them oldest first; a clip is removed only after full playback. DotDial does not archive microphone audio or create transcripts.
-- Hear a real 1997 modem handshake while connecting. Choose telephone tones or your own local MP3/WAV in settings if you prefer. Custom sounds are not uploaded.
-- Configure everything through the settings window or one [versioned JSON file](docs/AGENT.md). Agents can also inspect and control a running call through the local CLI.
-
-When wake-word support is enabled, its recognizer continues to listen locally during calls, even while microphone transmission is muted. A recognized phrase can unmute the microphone and speakers. Review the [privacy notes](docs/PRIVACY.md) before enabling it.
+![Voice activation and sound choices](docs/images/voice.png)
 
 ## Install the beta
 
-DotDial 0.1.0-beta.1 is built for Linux x86_64. Electron 44.5.1 provides the desktop runtime. The `.deb` is for Debian/Ubuntu; the archive installer works on Linux distributions with the required Electron desktop libraries.
+You need **Linux x86_64** and a ChatGPT account that already has a dot. DotDial is an unofficial community project, not an OpenAI product. This beta uses internal ChatGPT web routes rather than a supported public voice API, so service changes can affect compatibility.
+
+DotDial 0.1.0-beta.1 bundles Electron 44.5.1. The `.deb` is for Debian/Ubuntu; the archive installer works on Linux distributions with the required Electron desktop libraries.
 
 ### Debian or Ubuntu
 
