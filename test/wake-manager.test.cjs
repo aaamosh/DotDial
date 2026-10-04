@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { WakeManager } = require('../src/wake-manager.cjs');
-const MODEL = 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01';
+const { MODEL, MODEL_FILES } = require('../src/wake-runtime.cjs');
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function until(predicate) {
@@ -19,10 +19,11 @@ async function until(predicate) {
 }
 
 class FakeChild extends EventEmitter {
-  constructor(command, args) {
+  constructor(command, args, options) {
     super();
     this.command = command;
     this.args = args;
+    this.options = options;
     this.stdout = new EventEmitter();
     this.stdin = { end() {} };
     this.exitCode = null;
@@ -52,12 +53,12 @@ function fixture(t, { model = true, onSpawn } = {}) {
   const modelDir = path.join(dataDir, 'models', MODEL);
   if (model) {
     fs.mkdirSync(modelDir, { recursive: true });
-    fs.writeFileSync(path.join(modelDir, 'tokens.txt'), 'tokens');
+    for (const file of MODEL_FILES) fs.writeFileSync(path.join(modelDir, file), 'model');
   }
   const paths = { dataDir };
   const children = [];
-  const spawn = (command, args) => {
-    const child = new FakeChild(command, args);
+  const spawn = (command, args, options) => {
+    const child = new FakeChild(command, args, options);
     children.push(child);
     onSpawn?.(child);
     return child;
@@ -77,7 +78,7 @@ function fixture(t, { model = true, onSpawn } = {}) {
   return { root, dataDir, modelDir, children, changes, wakes, manager };
 }
 
-const enabledConfig = { enabled: true, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3' };
+const enabledConfig = { enabled: true, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '' };
 
 test('call pause waits for listener exit and a fast resume starts exactly one replacement', async t => {
   const f = fixture(t);
@@ -125,6 +126,47 @@ test('missing model and an unavailable interpreter leave stable setup errors', a
   assert.equal(unavailable.manager.status, 'setup_required', 'the close event must not overwrite the spawn error');
 });
 
+test('wake input is resolved from its PortAudio name and host API selection', async t => {
+  const f = fixture(t);
+  f.manager.configure({ ...enabledConfig, deviceName: 'USB Headset Mic', deviceHostApi: 'PulseAudio' });
+  await until(() => f.children.length === 1);
+  const args = f.children[0].args;
+  assert.equal(args[args.indexOf('--device-name') + 1], 'USB Headset Mic');
+  assert.equal(args[args.indexOf('--device-host-api') + 1], 'PulseAudio');
+  assert.equal(f.children[0].options.detached, undefined, 'only the installer owns a process group');
+});
+
+test('PortAudio enumeration returns device names without opening an input stream', async t => {
+  const f = fixture(t);
+  f.manager.config = enabledConfig;
+  const listing = f.manager.listDevices();
+  const child = f.children[0];
+  assert.match(child.args[0], /wake\/list_devices\.py$/u);
+  assert.deepEqual(child.options.stdio, ['ignore', 'pipe', 'ignore']);
+  child.stdout.emit('data', Buffer.from(JSON.stringify({ inputs: [
+    { name: 'USB Headset Mic', hostApi: 'PulseAudio', ambiguous: false },
+    { name: 'Duplicate', hostApi: 'ALSA', ambiguous: true },
+  ] })));
+  child.close(0);
+  assert.deepEqual(await listing, { status: 'wake_devices_listed', inputs: [
+    { name: 'USB Headset Mic', hostApi: 'PulseAudio', ambiguous: false },
+    { name: 'Duplicate', hostApi: 'ALSA', ambiguous: true },
+  ] });
+});
+
+test('close terminates an in-flight wake-device scan', async t => {
+  const f = fixture(t);
+  f.manager.config = enabledConfig;
+  const listing = f.manager.listDevices();
+  const scan = f.children[0];
+
+  await f.manager.close();
+
+  assert.deepEqual(await listing, { status: 'wake_devices_unavailable', inputs: [] });
+  assert.deepEqual(scan.killSignals, ['SIGTERM']);
+  assert.equal(scan.signalCode, 'SIGTERM');
+});
+
 test('installer spawn failure is reported without leaving install state stuck', async t => {
   const f = fixture(t, { onSpawn(child) {
     if (child.args[0]?.endsWith('setup-wake.py')) {
@@ -135,10 +177,53 @@ test('installer spawn failure is reported without leaving install state stuck', 
     }
   } });
   assert.deepEqual(await f.manager.install(), { status: 'wake_setup_started' });
-  await until(() => f.manager.status === 'setup_required');
+  await tick();
+  await f.manager.installerFinish.promise;
   assert.equal(f.manager.error, 'wake_setup_failed');
   assert.equal(f.manager.installing, false);
   assert.equal(f.manager.installer, null);
+});
+
+test('installer cleanup escalates to SIGKILL when a child ignores SIGTERM', async t => {
+  if (process.platform === 'win32') return t.skip('POSIX process groups are required');
+  const f = fixture(t);
+  const childPidFile = path.join(f.root, 'installer-child.pid');
+  const childSource = `process.on('SIGTERM',()=>{});require('node:fs').writeFileSync(${JSON.stringify(childPidFile)},String(process.pid));setInterval(()=>{},1000)`;
+  const parentSource = `const {spawn}=require('node:child_process');spawn(process.execPath,['-e',${JSON.stringify(childSource)}],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(1));setInterval(()=>{},1000)`;
+  const { spawn, execFileSync } = require('node:child_process');
+  f.manager.spawn = (_command, _args, options) => spawn(process.execPath, ['-e', parentSource], options);
+
+  try {
+    assert.deepEqual(await f.manager.install(), { status: 'wake_setup_started' });
+    const installer = f.manager.installer;
+    assert.ok(installer?.pid);
+    for (let tries = 0; tries < 100 && !fs.existsSync(childPidFile); tries++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.ok(fs.existsSync(childPidFile), 'installer child should be running before shutdown');
+
+    const parentClosed = new Promise(resolve => installer.once('close', resolve));
+    process.kill(installer.pid, 'SIGTERM');
+    await parentClosed;
+    await f.manager.installerFinish.promise;
+
+    assert.equal(f.manager.installing, false);
+    assert.equal(f.manager.status, 'setup_required');
+    // macOS has no /proc; inspect the same process-group membership through ps.
+    const liveGroupPids = process.platform === 'darwin'
+      ? execFileSync('ps', ['-axo', 'pid=,pgid=,stat='], { encoding: 'utf8' }).split('\n').flatMap(line => {
+        const [pid, group, state] = line.trim().split(/\s+/u);
+        return Number(group) === installer.pid && state && !state.startsWith('Z') ? [Number(pid)] : [];
+      })
+      : fs.readdirSync('/proc').filter(name => /^\d+$/u.test(name)).flatMap(pid => {
+        try {
+          const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+          const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+          return Number(fields[2]) === installer.pid && fields[0] !== 'Z' ? [Number(pid)] : [];
+        } catch { return []; }
+      });
+    assert.deepEqual(liveGroupPids, [], 'no installer process should remain alive in the process group');
+  } finally {
+    await f.manager.close();
+  }
 });
 
 test('quit cancels an installer and never restarts wake listening', async t => {

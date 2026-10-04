@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveWakeRuntime, pythonCandidates, checkPython, findWakePython } = require('../src/wake_runtime.cjs');
+const { resolveWakeRuntime, pythonCandidates, checkPython, findWakePython } = require('../src/wake-runtime.cjs');
 const paths = { dataDir: '/Users/example/Library/Application Support/DotDial/data' };
 
 test('mac wake runtime discovers installed Homebrew Python without a GUI shell PATH or executing it', () => {

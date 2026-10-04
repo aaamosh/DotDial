@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CallController } from "./call_controller.mjs";
+import { DotVoiceSession } from './dot_voice.mjs';
 import { createRequire } from 'node:module';
 const { presentState } = createRequire(import.meta.url)('./desktop.cjs');
 
@@ -293,6 +294,64 @@ test("an unknown create result stays recoverable and is never retried", async ()
   assert.equal(h.events.filter(event => Array.isArray(event) && event[0] === "create").length, 1);
 });
 
+test('identity failure before create dispatch leaves the next call available', async () => {
+  const h = harness();
+  let reads = 0;
+  const requests = [];
+  h.controller.makeSession = () => new DotVoiceSession({
+    threadId: '00000000-0000-4000-8000-000000000001',
+    identity: async () => {
+      if (++reads === 2) throw Object.assign(new Error('offline'), { code: 'login_connection_failed' });
+      return { email: 'owner@example.com', accountId: ACCOUNT, accessToken: 'fixture-token' };
+    },
+    fetchImpl: async (url, init) => {
+      requests.push([init.method, new URL(url).pathname]);
+      if (init.method === 'GET') return Response.json({ id: PROFILE });
+      if (url.endsWith('/voice/calls')) return new Response('v=0\r\nanswer', { status: 201, headers: { Location: '/calls/fixture-call' } });
+      return new Response(null, { status: 204 });
+    },
+  });
+  h.controller.wake({ microphone: false });
+  await h.controller.pending;
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0][0], 'GET');
+  assert.equal(h.controller.state, 'ready');
+  assert.deepEqual(h.journal, { phase: 'closed' });
+  assert.equal(h.controller.wake({ microphone: false }).status, 'accepted_wake');
+  await h.controller.pending;
+  try { assert.equal(h.controller.state, 'active'); }
+  finally { await h.controller.stop(); }
+});
+
+test('failed status publication cannot prevent cleanup of a known call', async t => {
+  const h = harness({ browserMedia: true });
+  h.controller.wake();
+  await h.controller.pending;
+  t.after(() => { clearTimeout(h.controller.timer); clearInterval(h.controller.meter); });
+  h.controller.publish = () => { throw Object.assign(new Error('full disk'), { code: 'ENOSPC' }); };
+  await h.controller.stop();
+  assert.equal(h.controller.state, 'ready');
+  assert.equal(h.controller.capture, null);
+  assert.ok(h.events.includes('peerClosed'));
+  assert.equal(h.events.filter(e => Array.isArray(e) && e[0] === 'remoteStop').length, 1);
+  assert.equal(h.journal.phase, 'closed');
+});
+
+test('journal write failure during cleanup still stops the exact remote call', async t => {
+  const h = harness({ browserMedia: true });
+  h.controller.wake();
+  await h.controller.pending;
+  t.after(() => { clearTimeout(h.controller.timer); clearInterval(h.controller.meter); });
+  h.controller.writeJournal = () => { throw Object.assign(new Error('full disk'), { code: 'ENOSPC' }); };
+  await h.controller.stop();
+  assert.equal(h.controller.capture, null);
+  assert.equal(h.controller.state, 'recovery_required');
+  assert.deepEqual(h.events.filter(e => Array.isArray(e) && e[0] === 'remoteStop'), [
+    ['remoteStop', PROFILE, ACCOUNT, 'fixture-call-1'],
+  ]);
+  assert.equal(h.journal.callId, 'fixture-call-1');
+});
+
 test("a call allocated before attach failure is closed and journaled", async () => {
   const h = harness({ attach: async () => { throw Object.assign(new Error("attach failed"), { code: "api_request_rejected" }); } });
   h.controller.wake({ microphone: true });
@@ -566,4 +625,25 @@ test('failed microphone reactivation leaves the active call muted', async () => 
   assert.equal(h.controller.snapshot().microphone_muted, true);
   assert.equal(h.controller.snapshot().microphone_error, 'microphone_change_failed');
   await h.controller.stop();
+});
+
+test('worker failure during unmute cancels the call before late acquisition resolves', async () => {
+  const acquisition = deferred();
+  let starts = 0;
+  const h = harness({ browserMedia: true, startMicrophone: () => ++starts === 2 ? acquisition.promise : undefined });
+  h.controller.wake();
+  await h.controller.pending;
+  h.controller.setMicrophoneEnabled(false);
+  await h.controller.microphonePending;
+  h.controller.setMicrophoneEnabled(true);
+  h.peers[0].onConnection(new Error('media_worker_timeout'));
+  assert.equal(h.controller.state, 'stopping');
+  assert.equal(h.controller.peer, null);
+  assert.equal(h.controller.capture, null);
+  assert.ok(h.events.includes('peerClosed'));
+  acquisition.resolve();
+  await h.controller.stopping;
+  assert.equal(h.controller.state, 'ready');
+  assert.equal(h.controller.capture, null);
+  assert.equal(h.events.filter(e => e === 'captureStopped').length, 2);
 });

@@ -45,6 +45,14 @@ export class CallAudioControls {
     return { ...this.controller.snapshot(), ...this.mailbox.snapshot(),
       microphone_changing: !!this.controller.microphonePending || this.mailbox.playing };
   }
+  stop() {
+    this.cancelActivation();
+    this.mailbox.disableMicRestore = true;
+    // Revoke call ownership synchronously, before replay cleanup can restore
+    // a live microphone or speakers across its first await.
+    const stopping = this.controller.stop();
+    return Promise.all([stopping, this.mailbox.stop()]);
+  }
   play() {
     this.cancelActivation();
     if (['starting', 'stopping'].includes(this.controller.state) || this.controller.microphonePending || this.mailbox.changing) {

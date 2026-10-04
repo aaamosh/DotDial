@@ -1,10 +1,15 @@
 'use strict';
-
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const MODEL = 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01';
+const MODEL_FILES = [
+  'tokens.txt', 'bpe.model',
+  'encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx',
+  'decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx',
+  'joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx',
+];
 const SUPPORTED_PYTHON = ['3.13', '3.12', '3.11', '3.10'];
 const failure = code => Object.assign(new Error(code), { code });
 
@@ -51,6 +56,17 @@ function resolveWakeRuntime(config = {}, paths, options = {}) {
   };
 }
 
+function wakeModelReady(directory) {
+  try {
+    return fs.statSync(directory).isDirectory() && MODEL_FILES.every(name => {
+      const file = path.join(directory, name);
+      const stat = fs.statSync(file);
+      fs.accessSync(file, fs.constants.R_OK);
+      return stat.isFile() && stat.size > 0;
+    });
+  } catch { return false; }
+}
+
 function checkPython(python, { execFile: execute = execFile, timeoutMs = 2500 } = {}) {
   return new Promise((resolve, reject) => {
     execute(python, ['-c', 'import json,sys; print(json.dumps(list(sys.version_info[:3])))'],
@@ -79,4 +95,4 @@ async function findWakePython(config, paths, options = {}) {
   throw failure(incompatible ? 'wake_python_version_unsupported' : 'wake_python_unavailable');
 }
 
-module.exports = { MODEL, resolveWakeRuntime, pythonCandidates, checkPython, findWakePython };
+module.exports = { MODEL, MODEL_FILES, resolveWakeRuntime, wakeModelReady, pythonCandidates, checkPython, findWakePython };

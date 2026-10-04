@@ -1,7 +1,7 @@
 {
   "name": "dotdial",
   "productName": "DotDial",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "A little phone for your ChatGPT dot. Voice activation, quiet mode and missed replies for Linux and macOS.",
   "main": "src/main.cjs",
   "license": "MIT",
@@ -11,6 +11,7 @@
   "bin": { "dotdial": "bin/dotdial.cjs" },
   "engines": { "node": ">=22.12.0" },
   "scripts": {
+    "postinstall": "node scripts/build-macos-native.cjs",
     "start": "node bin/dotdial.cjs run",
     "demo": "electron . --demo",
     "test": "node --test src/*.test.mjs test/*.test.cjs",

@@ -157,15 +157,6 @@ class DotDialMissedCaptureProcessor extends AudioWorkletProcessor {
     this.frame.fill(0, 0, length);
     this.frameLength = 0;
 
-    if (this.segmentSamples >= MAX_SEGMENT_SAMPLES) {
-      this.endSegment(this.segmentSamples, this.voiceSamples >= MIN_VOICE_SAMPLES || this.continued, 'limit');
-      this.resetSegment();
-      this.continuationPending = true;
-      this.continuationQuietSamples = 0;
-      this.clearPreRoll();
-      return;
-    }
-
     if (this.quietSamples >= SILENCE_END_SAMPLES) {
       const trim = Math.min(this.segmentSamples, Math.max(0, this.quietSamples - TRAILING_SAMPLES));
       const validSamples = Math.max(0, this.segmentSamples - trim);
@@ -196,13 +187,39 @@ class DotDialMissedCaptureProcessor extends AudioWorkletProcessor {
   }
 
   appendFrame(length, voiced) {
-    this.emitPcm(this.segmentId, this.frame, length);
-    this.segmentSamples += length;
-    if (voiced) {
-      this.voiceSamples += length;
-      this.quietSamples = 0;
-    } else {
-      this.quietSamples += length;
+    let offset = 0;
+    while (offset < length) {
+      if (!this.active) this.beginSegment(true);
+      const capacity = MAX_SEGMENT_SAMPLES - this.segmentSamples;
+      if (capacity <= 0) {
+        this.endSegment(this.segmentSamples, this.voiceSamples >= MIN_VOICE_SAMPLES || this.continued, 'limit');
+        this.resetSegment();
+        this.continuationPending = true;
+        this.continuationQuietSamples = 0;
+        this.clearPreRoll();
+        this.beginSegment(true);
+        continue;
+      }
+
+      const count = Math.min(length - offset, capacity);
+      this.emitPcm(this.segmentId, this.frame.subarray(offset, offset + count), count);
+      this.segmentSamples += count;
+      if (voiced) {
+        this.voiceSamples += count;
+        this.quietSamples = 0;
+      } else {
+        this.quietSamples += count;
+      }
+      offset += count;
+
+      if (this.segmentSamples >= MAX_SEGMENT_SAMPLES) {
+        this.endSegment(this.segmentSamples, this.voiceSamples >= MIN_VOICE_SAMPLES || this.continued, 'limit');
+        this.resetSegment();
+        this.continuationPending = true;
+        this.continuationQuietSamples = 0;
+        this.clearPreRoll();
+        if (offset < length) this.beginSegment(true);
+      }
     }
   }
 

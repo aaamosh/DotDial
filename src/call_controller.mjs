@@ -19,7 +19,11 @@ export class CallController {
       microphone_changing: !!this.microphonePending, ...this.metrics };
   }
 
-  report() { this.publish(this.snapshot()); }
+  report() {
+    // Observers must never interrupt capture cancellation or remote cleanup.
+    try { this.publish(this.snapshot()); }
+    catch { this.metrics.status_error = 'status_publish_failed'; }
+  }
 
   wake({ microphone = true, maxSeconds = 600 } = {}) {
     if (this.pending || this.stopping || this.recoveryPending || !['ready', 'recovery_required'].includes(this.state)) return { status: this.state };
@@ -105,7 +109,10 @@ export class CallController {
     let answer;
     try { answer = await this.step('create', () => s.create(offer)); }
     catch (err) {
-      if (!s.callId && err.status >= 400 && err.status < 500) this.writeJournal({ phase: 'closed' });
+      if (!s.callId && (['not_sent', 'rejected'].includes(s.creationOutcome) ||
+          (s.creationOutcome === undefined && err.status >= 400 && err.status < 500))) {
+        this.writeJournal({ phase: 'closed' });
+      }
       throw err;
     }
     this.writeJournal({ phase: 'created', profileId: s.profileId, accountId: s.accountId, callId: s.callId });
@@ -223,12 +230,17 @@ export class CallController {
     try { await peer?.close(); } catch {}
     if (this.callAttempt) {
       this.callAttempt = false;
-      await this.cue('ended');
+      try { await this.cue('ended'); }
+      catch { this.metrics.sound_error = 'end_sound_failed'; }
     }
     const s = this.session; this.session = null;
     if (s?.callId) {
-      this.writeJournal({ phase: 'stopping', profileId: s.profileId, accountId: s.accountId, callId: s.callId });
-      await this.closeRemote(s);
+      try { this.writeJournal({ phase: 'stopping', profileId: s.profileId, accountId: s.accountId, callId: s.callId }); }
+      catch { this.metrics.journal_error = 'journal_write_failed'; }
+      // A full disk must not stop us releasing an already known remote call.
+      // If the closed marker cannot be saved, retain recovery on the old ID.
+      try { await this.closeRemote(s); }
+      catch { this.metrics.last_error = 'journal_write_failed'; }
     }
     const j = this.readJournal();
     this.state = j && j.phase !== 'closed' ? 'recovery_required' : 'ready';

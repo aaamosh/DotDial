@@ -2,6 +2,7 @@
 
 (() => {
   let peer, channel, transceiver, microphone, silentContext, silentSource, silentTrack, closed = false, eventCount = 0;
+  let microphoneGeneration = 0;
   const output = document.getElementById('remote');
   const diagnostics = new AudioDiagnostics();
   const eventTypes = {};
@@ -13,6 +14,9 @@
   let playbackReserveMs = 0, microphoneDeviceId = 'default', outputDeviceId = 'default', recordingEnabled = true;
   let speakersMuted = false, missedCapture, captureReady, recordingError, playbackSource, speakerGain;
   const failure = code => Object.assign(new Error(code), { code });
+  const stopStream = stream => stream?.getTracks().forEach(track => {
+    if (track.readyState !== 'ended') track.stop();
+  });
 
   function configure(options = {}) {
     if (peer) throw failure('media_already_started');
@@ -135,32 +139,49 @@
 
   async function startMicrophone() {
     if (closed) throw failure('cancelled');
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: false,
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1,
-        ...(microphoneDeviceId !== 'default' ? { deviceId: { exact: await DotDialDevices.resolve(microphoneDeviceId, 'audioinput') } } : {}) },
-    });
-    if (closed) {
-      stream.getTracks().forEach(track => track.stop());
+    const generation = ++microphoneGeneration;
+    const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+    if (microphoneDeviceId !== 'default') {
+      const deviceId = await DotDialDevices.resolve(microphoneDeviceId, 'audioinput');
+      if (closed || generation !== microphoneGeneration) throw failure('cancelled');
+      audio.deviceId = { exact: deviceId };
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio });
+    if (closed || generation !== microphoneGeneration) {
+      stopStream(stream);
       throw failure('cancelled');
     }
-    try {
-      await transceiver.sender.replaceTrack(stream.getAudioTracks()[0]);
-    } catch (error) {
-      stream.getTracks().forEach(track => track.stop());
-      throw error;
-    }
-    if (closed) {
-      stream.getTracks().forEach(track => track.stop());
-      throw failure('cancelled');
+    const track = stream.getAudioTracks()[0];
+    if (!track) {
+      stopStream(stream);
+      throw failure('microphone_unavailable');
     }
     microphone = stream;
-    const settings = stream.getAudioTracks()[0].getSettings();
+    try {
+      await transceiver.sender.replaceTrack(track);
+    } catch (error) {
+      stopStream(stream);
+      if (microphone === stream) microphone = null;
+      throw error;
+    }
+    if (closed || generation !== microphoneGeneration) {
+      stopStream(stream);
+      if (microphone === stream) microphone = null;
+      // A mute or newer acquisition can race with replaceTrack(). Restore
+      // only the current desired track if this stale completion won the race.
+      const currentTrack = microphone?.getAudioTracks()[0] || silentTrack;
+      if (!closed && currentTrack?.readyState === 'live' && transceiver.sender.track !== currentTrack) {
+        await transceiver.sender.replaceTrack(currentTrack).catch(() => {});
+      }
+      throw failure('cancelled');
+    }
+    const settings = track.getSettings();
     return Object.fromEntries(['sampleRate', 'channelCount', 'echoCancellation', 'noiseSuppression', 'autoGainControl'].map(key => [key, settings[key]]));
   }
 
   async function stopMicrophone() {
-    microphone?.getTracks().forEach(track => track.stop());
+    microphoneGeneration++;
+    stopStream(microphone);
     microphone = null;
     if (!closed && transceiver && silentTrack?.readyState === 'live') {
       await transceiver.sender.replaceTrack(silentTrack).catch(() => {});
@@ -201,6 +222,7 @@
 
   async function close() {
     closed = true;
+    microphoneGeneration++;
     clearTimeout(playbackTimer);
     stopMicrophone();
     silentTrack?.stop();

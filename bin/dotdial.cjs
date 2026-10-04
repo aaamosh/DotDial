@@ -6,14 +6,15 @@ const net = require('node:net');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { electronLayout } = require('../src/runtime_paths.cjs');
-const { resolveWakeRuntime } = require('../src/wake_runtime.cjs');
 const {
   ConfigError,
   validateConfig,
   loadConfigSnapshot,
   saveConfig,
   getPaths,
+  configLockCommand,
 } = require('../src/config.cjs');
+const { resolveWakeRuntime, wakeModelReady } = require('../src/wake-runtime.cjs');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const { mainScript: MAIN_SCRIPT, packaged: PACKAGED_LAYOUT, electron: RUNTIME_ELECTRON } = electronLayout(PROJECT_ROOT);
@@ -27,7 +28,7 @@ Usage:
   dotdial config set <dotted.key> <JSON-value> [--if-hash SHA256] [--config FILE]
   dotdial doctor [--electron FILE] [--config FILE]
   dotdial run [--settings] [--electron FILE] [--config FILE]
-  dotdial status | call | hangup | mute | unmute | speakers-mute | speakers-unmute | replay [--config FILE]
+  dotdial status | call | hangup | mute | unmute | speakers-mute | speakers-unmute | replay
 
 All output is JSON except config path, which prints one absolute path.
 Call uses the microphone; use it only when you intend to start a conversation.
@@ -70,6 +71,7 @@ function parseGlobalOptions(args) {
   return {
     args: rest,
     configFile: configOption.value ? path.resolve(configOption.value) : getPaths().configFile,
+    configProvided: configOption.value !== undefined,
     electron: electronOption.value,
   };
 }
@@ -169,10 +171,6 @@ function isFile(file) {
   try { return fs.statSync(file).isFile(); } catch { return false; }
 }
 
-function isDirectory(directory) {
-  try { return fs.statSync(directory).isDirectory(); } catch { return false; }
-}
-
 function writableDirectoryOrParent(directory) {
   let candidate = path.resolve(directory);
   while (true) {
@@ -199,9 +197,9 @@ function doctor(configFile, electronOverride) {
   const mainExists = isFile(MAIN_SCRIPT);
   const launcherCommand = config?.network.signalingLauncher[0];
   const launcherFound = launcherCommand ? !!resolveExecutable(launcherCommand) : true;
-  const wakeRuntime = config?.wakeWord.enabled ? resolveWakeRuntime(config.wakeWord, paths) : null;
-  const pythonFound = wakeRuntime ? !!(wakeRuntime.python && resolveExecutable(wakeRuntime.python)) : null;
-  const modelFound = wakeRuntime ? isDirectory(wakeRuntime.model) : null;
+  const wakeRuntime = config ? resolveWakeRuntime(config.wakeWord, paths) : null;
+  const pythonFound = config?.wakeWord.enabled ? !!(wakeRuntime.python && resolveExecutable(wakeRuntime.python)) : null;
+  const modelFound = config?.wakeWord.enabled ? wakeModelReady(wakeRuntime.model) : null;
   const socketLengthOk = Buffer.byteLength(paths.socketPath) < 104;
   const checks = {
     platformSupported: ['linux', 'darwin'].includes(process.platform),
@@ -209,7 +207,8 @@ function doctor(configFile, electronOverride) {
     config: !configError,
     electron: !!electron,
     mainScript: mainExists,
-    configDirectoryWritable: writableDirectoryOrParent(paths.configDir),
+    configLockUtility: !!resolveExecutable(configLockCommand().command),
+    configDirectoryWritable: writableDirectoryOrParent(path.dirname(configFile)),
     stateDirectoryWritable: writableDirectoryOrParent(paths.stateDir),
     dataDirectoryWritable: writableDirectoryOrParent(paths.dataDir),
     cacheDirectoryWritable: writableDirectoryOrParent(paths.cacheDir),
@@ -234,7 +233,7 @@ function doctor(configFile, electronOverride) {
       socketPath: paths.socketPath,
       electron: electron || RUNTIME_ELECTRON,
       mainScript: MAIN_SCRIPT,
-      ...(wakeRuntime ? { wakeWordPython: wakeRuntime.python, wakeWordModel: wakeRuntime.model } : {}),
+      ...(wakeRuntime ? { wakePython: wakeRuntime.python, wakeModel: wakeRuntime.model } : {}),
     },
     ...(configError ? { configError } : {}),
   });
@@ -348,6 +347,9 @@ async function main(argv = process.argv.slice(2)) {
   };
   if (!Object.hasOwn(commands, command)) throw fail('DOTDIAL_COMMAND_UNKNOWN', `Unknown command: ${command}`);
   if (rest.length) throw fail('DOTDIAL_ARGUMENT_INVALID', `${command} takes no arguments`);
+  if (global.configProvided) {
+    throw fail('DOTDIAL_ARGUMENT_INVALID', '--config applies to config, doctor, and run; controls always target the default running instance');
+  }
   writeJson(await sendAgentCommand(getPaths().socketPath, commands[command]));
   return 0;
 }

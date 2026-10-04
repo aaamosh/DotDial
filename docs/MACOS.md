@@ -157,7 +157,10 @@ Library or the shared temporary directory.
 
 ## Build and verify from source
 
-Use a real Mac of the target architecture with Node 22.12 or newer:
+Use a real Mac of the target architecture with Node 22.12 or newer and Apple's
+Command Line Tools (`xcode-select --install` if they are not already installed).
+`npm ci` compiles the small native configuration-lock helper. The packaged app
+includes this helper and does not need a compiler or a separate `flock` utility:
 
 ```sh
 npm ci

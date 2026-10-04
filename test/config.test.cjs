@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 const test = require('node:test');
 const {
   defaults,
@@ -30,7 +31,7 @@ test('defaults match the versioned DotDial settings contract', () => {
       soundVolume: 0.55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false,
       connectionSound: 'modem', customSoundPath: '',
     },
-    wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3' },
+    wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '' },
     recording: { enabled: true, maxMegabytes: 200 },
     appearance: { theme: 'system', panelOpacity: 0.86, showPanel: true, language: 'en' },
     network: { signalingProxy: '', signalingLauncher: [], mediaLauncher: [] },
@@ -70,6 +71,13 @@ test('strict validation rejects unknown keys and invalid values with stable code
   assert.throws(() => validateConfig({ recording: { maxMegabytes: 0 } }), {
     code: 'DOTDIAL_CONFIG_INVALID', field: 'recording.maxMegabytes',
   });
+  assert.throws(() => validateConfig({ wakeWord: { deviceName: 'Desk microphone' } }), {
+    code: 'DOTDIAL_CONFIG_INVALID', field: 'wakeWord.deviceName',
+  });
+  assert.throws(() => validateConfig({ wakeWord: { deviceHostApi: 'ALSA' } }), {
+    code: 'DOTDIAL_CONFIG_INVALID', field: 'wakeWord.deviceName',
+  });
+  assert.equal(validateConfig({ wakeWord: { deviceName: 'Desk microphone', deviceHostApi: 'ALSA' } }).wakeWord.deviceHostApi, 'ALSA');
 });
 
 test('connection sounds default safely and custom sounds require a local MP3 or WAV path', () => {
@@ -130,7 +138,10 @@ test('load and save use defaults, private modes, atomic bytes, and compare-and-s
   assert.equal(saved.config.dot.displayName, 'Desk dot');
   assert.equal(saved.hash, loadConfigSnapshot(file).hash);
   assert.deepEqual(loadConfig(file), saved.config);
-  assert.equal(fs.readdirSync(path.dirname(file)).some(name => name.endsWith('.tmp') || name.endsWith('.lock')), false);
+  const lockFile = `${file}.lock`;
+  assert.equal(fs.statSync(lockFile).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(fs.readFileSync(lockFile, 'utf8')).format, 2);
+  assert.equal(fs.readdirSync(path.dirname(file)).some(name => name.endsWith('.tmp')), false);
 
   assert.throws(() => saveConfig(file, defaults, { expectedHash: null }), {
     code: 'DOTDIAL_CONFIG_CONFLICT',
@@ -142,6 +153,64 @@ test('load and save use defaults, private modes, atomic bytes, and compare-and-s
     expectedHash: saved.hash,
   });
   assert.notEqual(next.hash, saved.hash);
+});
+
+test('saving a custom config preserves an existing parent directory mode', t => {
+  const root = tempDir(t);
+  const directory = path.join(root, 'shared');
+  fs.mkdirSync(directory, { mode: 0o755 });
+  fs.chmodSync(directory, 0o755);
+  const file = path.join(directory, 'dotdial.json');
+
+  saveConfig(file, defaults, { expectedHash: null });
+
+  assert.equal(fs.statSync(directory).mode & 0o777, 0o755);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
+test('a stale malformed legacy lock is recovered but a live PID lock is preserved', t => {
+  const directory = tempDir(t);
+  const file = path.join(directory, 'config.json');
+  const lock = `${file}.lock`;
+  fs.writeFileSync(lock, '');
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(lock, old, old);
+
+  saveConfig(file, defaults, { expectedHash: null });
+  assert.equal(loadConfigSnapshot(file).hash, saveConfig(file, defaults).hash);
+
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, createdAt: Date.now() - 60_000 }));
+  fs.utimesSync(lock, old, old);
+  assert.throws(() => saveConfig(file, defaults), { code: 'DOTDIAL_CONFIG_BUSY' });
+  assert.equal(fs.existsSync(lock), true, 'an active owner is protected regardless of lock age');
+});
+
+test('concurrent config writer processes serialize saves without corrupting the file', async t => {
+  const directory = tempDir(t);
+  const file = path.join(directory, 'config.json');
+  const modulePath = path.resolve(__dirname, '../src/config.cjs');
+  const source = `
+    const { loadConfig, saveConfig } = require(${JSON.stringify(modulePath)});
+    const file = process.argv[1], writer = process.argv[2];
+    for (let i = 0; i < 8; i++) {
+      const current = loadConfig(file);
+      saveConfig(file, { ...current, dot: { ...current.dot, displayName: writer + '-' + i } });
+    }
+  `;
+  const writers = Array.from({ length: 4 }, (_, index) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['-e', source, file, `writer${index}`], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', code => code === 0 ? resolve() : reject(new Error(stderr || `writer exited ${code}`)));
+  }));
+
+  await Promise.all(writers);
+
+  const current = loadConfigSnapshot(file);
+  assert.match(current.config.dot.displayName, /^writer[0-3]-[0-7]$/u);
+  assert.equal(JSON.parse(fs.readFileSync(`${file}.lock`, 'utf8')).format, 2);
+  assert.equal(fs.readdirSync(directory).some(name => name.endsWith('.tmp')), false);
 });
 
 test('invalid JSON and symlink config files fail closed', t => {

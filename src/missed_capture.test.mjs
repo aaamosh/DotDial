@@ -201,6 +201,33 @@ test('flush persists the current tail, stays muted, and captures the next segmen
   await capture.close();
 });
 
+test('a partial pre-roll is split at the segment limit without losing the remainder', async () => {
+  const harness = loadCaptureHarness();
+  const savedSamples = [];
+  const errors = [];
+  const capture = new harness.MissedCapture(harness.context, { getAudioTracks: () => [{}] }, {
+    onSegment: ({ pcm }) => savedSamples.push(pcm.byteLength / 2),
+    onError: code => errors.push(code),
+  });
+  await capture.ready;
+  await capture.setMuted(true);
+
+  // A partial render quantum is flushed into pre-roll, leaving its 128-sample
+  // offset at the start of the next spoken segment.
+  harness.nodes[0].process(new Float32Array(128));
+  await capture.flush();
+  const voice = new Float32Array(128).fill(0.1);
+  for (let offset = 0; offset < 60 * RATE; offset += voice.length) {
+    harness.nodes[0].process(voice);
+  }
+  await capture.flush();
+  await capture.drainSegments();
+
+  assert.deepEqual(savedSamples, [2_880_000, 128]);
+  assert.deepEqual(errors, []);
+  await capture.close();
+});
+
 test('flush retains a short continuation after the 60-second split without duplicating later audio', () => {
   const { processor, messages } = loadProcessor();
   setMuted(processor, true);

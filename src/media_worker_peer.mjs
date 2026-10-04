@@ -89,6 +89,7 @@ export function routedChromiumMedia({
       this.failureReported = false;
       this.readyResolved = false;
       this.childClosed = false;
+      this.closeConfirmed = false;
       this.closePromise = null;
       this.cleanupPromise = null;
       this.child = null;
@@ -158,7 +159,9 @@ export function routedChromiumMedia({
     }
 
     handleWorkerNotification(method, args) {
+      if (this.closed || this.childClosed) return;
       if (method === 'archive.recording' && Array.isArray(args) && args.length === 1) {
+        if (this.closing || this.failureReported) return;
         this.recordingActive = args[0] === true;
         try { this.archive?.setRecording?.(this.recordingActive); } catch {}
         return;
@@ -202,6 +205,7 @@ export function routedChromiumMedia({
     handleChildClose(code, signal) {
       this.childClosed = true;
       this.exit ||= { code, signal };
+      this.finalizeRecording(!this.closeConfirmed);
       clearTimeout(this.startupTimer);
       if (!this.readyResolved) this.failStartup('media_worker_start_failed');
       this.connection?.fail(codedError('media_worker_closed'));
@@ -219,6 +223,7 @@ export function routedChromiumMedia({
     handleUnexpectedFailure(code) {
       if (this.closing || this.failureReported) return;
       this.failureReported = true;
+      this.finalizeRecording(true);
       if (this.readyResolved) {
         try { this.onFailure(codedError(code)); } catch {}
       }
@@ -247,7 +252,18 @@ export function routedChromiumMedia({
     setSpeakersMuted(muted) { return this.call('peer.setSpeakersMuted', [muted === true], 10_000); }
     flushRecording() { return this.call('peer.flushRecording', [], 10_000); }
     async startMicrophone() {
-      this.microphoneSettings = await this.call('peer.startMicrophone', [], 20_000);
+      try {
+        this.microphoneSettings = await this.call('peer.startMicrophone', [], 20_000);
+      } catch (error) {
+        // An RPC timeout only stops waiting; Chromium may still finish the
+        // pending getUserMedia request later. Retire the entire peer so its
+        // renderer cannot turn a visibly-muted call into a live microphone.
+        if (['media_worker_timeout', 'media_worker_closed', 'media_worker_eof',
+          'media_worker_transport_error'].includes(error?.code)) {
+          this.handleUnexpectedFailure('media_connection_failed');
+        }
+        throw error;
+      }
       return { stop: () => { if (!this.closed && !this.closing) void this.stopMicrophone().catch(() => {}); } };
     }
 
@@ -263,19 +279,16 @@ export function routedChromiumMedia({
       const child = this.child;
       if (!child) {
         this.closed = true;
+        this.finalizeRecording(true);
         await this.cleanupUserData();
         return;
       }
 
       if (this.readyResolved && this.connection && !this.connection.closed) {
-        try { await this.connection.request('peer.close', [], closeTimeoutMs); }
-        catch {
-          // A timed out final archive flush leaves the last segment uncertain.
-          // Surface that state instead of silently reporting a clean call end.
-          if (this.recordingActive) {
-            try { this.archive?.setError?.('recording_failed'); } catch {}
-          }
-        }
+        try {
+          await this.connection.request('peer.close', [], closeTimeoutMs);
+          this.closeConfirmed = true;
+        } catch { /* Final recording state is resolved after child shutdown. */ }
       }
       // EOF is the worker's shutdown signal; normal close above completes its
       // final capture flush before the pipe is half-closed.
@@ -292,6 +305,7 @@ export function routedChromiumMedia({
         exited = !!(await this.waitForChildClose(killGraceMs));
       }
 
+      this.finalizeRecording(!this.closeConfirmed);
       this.closed = true;
       this.connection?.fail(codedError('media_worker_closed'));
       if (exited) await this.cleanupUserData();
@@ -300,6 +314,15 @@ export function routedChromiumMedia({
         this.child.once('close', () => { void this.cleanupUserData(); });
         throw codedError('media_worker_shutdown_timeout');
       }
+    }
+
+    finalizeRecording(uncertain) {
+      if (!this.recordingActive) return;
+      this.recordingActive = false;
+      if (uncertain) {
+        try { this.archive?.setError?.('recording_failed'); } catch {}
+      }
+      try { this.archive?.setRecording?.(false); } catch {}
     }
 
     waitForChildClose(timeoutMs) {

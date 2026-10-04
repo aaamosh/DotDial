@@ -44,6 +44,29 @@ function parseJsonLine(stdout, expectedField) {
   throw Error(`Smoke result ${expectedField} was not emitted:\n${stdout}`);
 }
 
+function verifyLockHelper(lockHelper, temporary, env) {
+  assert.equal(fs.readdirSync(env.PATH).length, 0, 'lock verification has no system tools on PATH');
+  const file = path.join(temporary, 'native-config-lock-check');
+  let owner, contender;
+  try {
+    owner = fs.openSync(file, 'wx+', 0o600);
+    const invoke = fd => ({ encoding: 'utf8', timeout: 5000, env, stdio: ['ignore', 'pipe', 'pipe', fd] });
+    run(lockHelper, ['--timeout-ms', '0'], invoke(owner));
+    contender = fs.openSync(file, 'r+');
+    const blocked = spawnSync(lockHelper, ['--timeout-ms', '100'], invoke(contender));
+    assert.equal(blocked.error, undefined, 'contention returns a bounded helper status');
+    assert.equal(blocked.status, 75, 'the caller keeps the kernel lock after the acquiring helper exits');
+    fs.closeSync(owner); owner = undefined;
+    run(lockHelper, ['--timeout-ms', '0'], invoke(contender));
+    return { inherited_descriptor: true, retained_after_helper_exit: true,
+      contention_exit_code: blocked.status, released_on_last_close: true, empty_path: true };
+  } finally {
+    if (owner !== undefined) fs.closeSync(owner);
+    if (contender !== undefined) fs.closeSync(contender);
+    fs.rmSync(file, { force: true });
+  }
+}
+
 async function runRequiredStages(stages, evidence, record = () => {}) {
   assert.ok(stages.length > 0, 'package verification requires checks');
   const failed = [];
@@ -96,7 +119,7 @@ async function main() {
     const unpacked = path.join(temporary, 'unpacked');
     run('/usr/bin/ditto', ['-x', '-k', zip, unpacked]);
     const bundle = path.join(unpacked, 'DotDial.app');
-    const { executable, launcher, architecture } = verifyBundle(bundle, manifest);
+    const { executable, launcher, lockHelper, architecture } = verifyBundle(bundle, manifest);
     evidence.architecture = architecture;
     evidence.helpers = verifyHelpers(bundle);
     const signing = run('/usr/bin/codesign', ['-d', '--verbose=4', bundle]);
@@ -120,6 +143,9 @@ async function main() {
     // Once archive identity and signatures are valid, these checks are
     // independent. Collect every result while keeping every stage mandatory.
     await runRequiredStages([
+      ['native_config_lock', async () => {
+        evidence.nativeConfigLock = verifyLockHelper(lockHelper, temporary, env);
+      }],
       ['bundled_cli', async () => {
         const configFile = path.join(env.XDG_CONFIG_HOME, 'dotdial', 'config.json');
         assert.equal(run(launcher, ['config', 'path'], { env }).stdout.trim(), configFile);
@@ -188,4 +214,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch(error => { console.error('MACOS_PACKAGE_CHECK_FAILED', error.stack || error.message); process.exitCode = 1; });
-module.exports = { main, runRequiredStages };
+module.exports = { main, runRequiredStages, verifyLockHelper };

@@ -37,6 +37,29 @@ test('a call that ended during replay cannot have its microphone reopened', asyn
   await h.controls.afterPlayback(context);
   assert.equal(h.controller.capture, null);
 });
+test('hangup revokes replay restoration before it awaits player cleanup', async () => {
+  const h = harness();
+  const context = await h.controls.beforePlayback();
+  let release;
+  h.controller.stop = () => {
+    h.events.push(['hangup']);
+    h.controller.cancelled = true;
+    h.controller.state = 'stopping';
+    return new Promise(resolve => { release = resolve; });
+  };
+  h.mailbox.stop = async () => {
+    h.events.push(['stop_replay']);
+    await h.controls.afterPlayback(context);
+    h.mailbox.playing = false;
+  };
+  const stopping = h.controls.stop();
+  assert.deepEqual(h.events.slice(2), [['hangup'], ['stop_replay']]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.controller.capture, null);
+  assert.equal(h.events.some(e => e[0] === 'microphone' && e[1]), false);
+  release();
+  await stopping;
+});
 test('explicit microphone mute during replay prevents automatic reactivation', async () => {
   const h = harness(); const context = await h.controls.beforePlayback();
   h.controls.microphone(false); await h.controller.microphonePending;

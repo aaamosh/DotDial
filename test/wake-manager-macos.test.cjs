@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { WakeManager } = require('../src/wake-manager.cjs');
-const { MODEL, findWakePython } = require('../src/wake_runtime.cjs');
+const { MODEL, MODEL_FILES, findWakePython } = require('../src/wake-runtime.cjs');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const config = { enabled: true, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3' };
 async function until(predicate) { for (let n = 0; n < 30; n++) { if (predicate()) return; await tick(); } assert.fail('condition did not settle'); }
@@ -14,7 +14,7 @@ async function until(predicate) { for (let n = 0; n < 30; n++) { if (predicate()
 function fixture(t, overrides = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-wake-mac-'));
   fs.mkdirSync(path.join(dataDir, 'models', MODEL), { recursive: true });
-  fs.writeFileSync(path.join(dataDir, 'models', MODEL, 'tokens.txt'), 'synthetic');
+  for (const file of MODEL_FILES) fs.writeFileSync(path.join(dataDir, 'models', MODEL, file), 'synthetic');
   const children = [], captures = [], wakes = [], changes = [];
   const manager = new WakeManager({ paths: { dataDir }, platform: 'darwin',
     requestMicrophoneAccess: async () => true, findPython: async () => '/synthetic/python3.12',
@@ -43,10 +43,11 @@ function fixture(t, overrides = {}) {
 }
 
 test('mac wake gives microphone ownership to Electron, streams bounded PCM and waits for capture before reporting ready', async t => {
-  const f = fixture(t); f.manager.configure(config, { inputDeviceId: 'label:Headset' });
+  const f = fixture(t); f.manager.configure({ ...config, deviceName: 'Saved Linux input', deviceHostApi: 'PulseAudio' }, { inputDeviceId: 'label:Headset' });
   await until(() => f.children.length === 1);
   const child = f.children[0];
   assert.ok(child.args.includes('--stdin-audio')); assert.equal(child.command, '/synthetic/python3.12');
+  assert.ok(!child.args.includes('--device-name') && !child.args.includes('--device-host-api'), 'mac wake does not select a Python microphone');
   assert.equal(f.captures.length, 0);
   child.ready(); child.wake();
   assert.equal(f.captures.length, 1); assert.equal(f.manager.status, 'starting'); assert.deepEqual(f.wakes, []);
@@ -66,6 +67,12 @@ test('denied mac permission does not launch Python or acquire a microphone', asy
   const f = fixture(t, { requestMicrophoneAccess: async () => false, findPython: () => assert.fail('must not probe') });
   f.manager.configure(config); await until(() => f.manager.status === 'error');
   assert.equal(f.manager.error, 'microphone_permission_required');
+  assert.equal(f.children.length, 0); assert.equal(f.captures.length, 0);
+});
+
+test('mac wake-device scan never launches the PortAudio backend', async t => {
+  const f = fixture(t);
+  assert.deepEqual(await f.manager.listDevices(), { status: 'wake_devices_unavailable', inputs: [] });
   assert.equal(f.children.length, 0); assert.equal(f.captures.length, 0);
 });
 

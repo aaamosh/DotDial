@@ -28,7 +28,7 @@ test('macOS archive allows runtime components and rejects private/build/test deb
     assert.equal(appFileFilter(path.join(root, file), root), false, file);
     assert.equal(appFileFilter('/' + file, root), false, file);
   }
-  for (const file of ['src/test.test.mjs', 'src/.env', 'src/__pycache__/listener.pyc', 'src/debug.tmp', 'bin/.token', 'scripts/smoke-ui.cjs', 'scripts/package-macos.cjs', 'node_modules/electron', 'profile/Cookies', 'dist/old.app.zip']) {
+  for (const file of ['src/test.test.mjs', 'src/.env', 'src/__pycache__/listener.pyc', 'src/debug.tmp', 'bin/.token', 'scripts/smoke-ui.cjs', 'scripts/package-macos.cjs', 'scripts/native/dotdial-lock.c', 'build/native/dotdial-lock', 'node_modules/electron', 'profile/Cookies', 'dist/old.app.zip']) {
     assert.equal(appFileFilter(path.join(root, file), root), true, file);
   }
 });
@@ -61,6 +61,8 @@ test('ad-hoc signing is mandatory and needs no credentials or timestamp service'
   assert.ok(main.entitlements.includes('com.apple.security.device.audio-input'));
   assert.ok(!main.entitlements.includes('com.apple.security.device.camera'));
   assert.equal(options.optionsForFile('/tmp/DotDial.app/Contents/Frameworks/DotDial Helper (Renderer).app').entitlements, undefined);
+  assert.deepEqual(options.optionsForFile('/tmp/DotDial.app/Contents/Resources/dotdial-lock').entitlements, [],
+    'the native lock helper needs no JIT, microphone, or other extra entitlement');
 });
 
 test('the pinned Packager hook prepares a Node-independent CLI that handles spaces', async t => {

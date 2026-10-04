@@ -53,13 +53,19 @@
     },
     "wakeWord": {
       "type": "object", "additionalProperties": false,
-      "required": ["enabled", "phrase", "sensitivity", "modelPath", "pythonPath"],
+      "required": ["enabled", "phrase", "sensitivity", "modelPath", "pythonPath", "deviceName", "deviceHostApi"],
+      "allOf": [
+        { "if": { "properties": { "deviceName": { "minLength": 1 } }, "required": ["deviceName"] }, "then": { "properties": { "deviceHostApi": { "minLength": 1 } } } },
+        { "if": { "properties": { "deviceHostApi": { "minLength": 1 } }, "required": ["deviceHostApi"] }, "then": { "properties": { "deviceName": { "minLength": 1 } } } }
+      ],
       "properties": {
         "enabled": { "type": "boolean", "default": false },
         "phrase": { "type": "string", "minLength": 1, "maxLength": 48, "default": "Hey Dot" },
         "sensitivity": { "type": "integer", "minimum": 1, "maximum": 10, "default": 6 },
         "modelPath": { "type": "string", "default": "", "description": "Empty disables a model override; non-empty paths must be absolute." },
-        "pythonPath": { "type": "string", "minLength": 1, "maxLength": 4096, "default": "python3" }
+        "pythonPath": { "type": "string", "minLength": 1, "maxLength": 4096, "default": "python3" },
+        "deviceName": { "type": "string", "maxLength": 256, "default": "", "description": "Empty uses the system-default wake input; otherwise select an exact PortAudio device name together with its host API." },
+        "deviceHostApi": { "type": "string", "maxLength": 80, "default": "", "description": "Paired with deviceName to resolve the wake input in PortAudio without relying on Chromium device IDs." }
       }
     },
     "recording": {

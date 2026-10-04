@@ -7,6 +7,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { scanPublicTree } = require('./check-public.cjs');
+const { buildNative } = require('./build-macos-native.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
@@ -93,7 +94,8 @@ function signingOptions() {
       timestamp: 'none',
       hardenedRuntime: true,
       // Keep Electron's specialized Renderer/GPU/Plugin helper entitlements.
-      ...(!/Helper \((?:Renderer|GPU|Plugin)\)\.app(?:\/|$)/.test(file) ? {
+      ...(path.basename(file) === 'dotdial-lock' ? { entitlements: [] } :
+        !/Helper \((?:Renderer|GPU|Plugin)\)\.app(?:\/|$)/.test(file) ? {
         entitlements: ['com.apple.security.cs.allow-jit', 'com.apple.security.device.audio-input'],
       } : {}),
     }),
@@ -146,6 +148,12 @@ function verifyBundle(bundle, manifest) {
   const executable = path.join(contents, 'MacOS', APP_NAME);
   const architecture = command('/usr/bin/lipo', ['-archs', executable], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   if (architecture !== (manifest.architecture === 'x64' ? 'x86_64' : 'arm64')) throw Error('Packaged Mach-O architecture does not match the manifest.');
+  const lockHelper = path.join(contents, 'Resources', 'dotdial-lock');
+  const lockStat = fs.lstatSync(lockHelper);
+  if (!lockStat.isFile() || (lockStat.mode & 0o111) !== 0o111) throw Error('The native config lock helper is missing or not executable.');
+  const lockArchitecture = command('/usr/bin/lipo', ['-archs', lockHelper], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  if (lockArchitecture !== architecture) throw Error('The packaged native config lock helper has the wrong architecture.');
+  command('/usr/bin/codesign', ['--verify', '--strict', '--verbose=2', lockHelper]);
   command('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', bundle]);
   const plist = JSON.parse(command('/usr/bin/plutil', ['-convert', 'json', '-o', '-', path.join(contents, 'Info.plist')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
   if (plist.CFBundleIdentifier !== BUNDLE_ID || plist.CFBundleExecutable !== APP_NAME || plist.LSMinimumSystemVersion !== MINIMUM_MACOS || plist.NSMicrophoneUsageDescription !== MICROPHONE_DESCRIPTION) {
@@ -161,7 +169,7 @@ function verifyBundle(bundle, manifest) {
   for (const relative of ['src/main.cjs', 'bin/dotdial.cjs', 'scripts/setup-wake.py', 'scripts/wake-requirements.txt', 'scripts/smoke-packaged.cjs', 'src/sounds/calling.wav']) {
     if (!fs.statSync(path.join(appSource, relative)).isFile()) throw Error(`Packaged application file is missing: ${relative}`);
   }
-  return { executable, launcher, architecture };
+  return { executable, launcher, lockHelper, architecture };
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -175,6 +183,8 @@ async function main(argv = process.argv.slice(2)) {
   validateBuild({ platform: process.platform, arch: process.arch, pkg, electronVersion: readVersion('electron'), packagerVersion: readVersion('@electron/packager') });
   const findings = scanPublicTree(ROOT);
   if (findings.length) throw Error('Public-source audit failed:\n' + findings.map(f => `${f.rule}: ${f.file}:${f.line}`).join('\n'));
+  const lockHelper = buildNative();
+  if (!lockHelper) throw Error('A native config lock helper is required for macOS packages.');
   const source = gitSource();
   const manifest = buildManifest({ pkg, arch: process.arch, ...source, preview });
   const stem = artifactStem(pkg.version, process.arch, source.sourceSha, preview);
@@ -205,7 +215,7 @@ async function main(argv = process.argv.slice(2)) {
       prune: false,
       overwrite: true,
       ignore: candidate => appFileFilter(candidate),
-      extraResource: [manifestFile],
+      extraResource: [manifestFile, lockHelper],
       extendInfo: { NSMicrophoneUsageDescription: MICROPHONE_DESCRIPTION, LSMinimumSystemVersion: MINIMUM_MACOS },
       extendHelperInfo: { NSMicrophoneUsageDescription: MICROPHONE_DESCRIPTION, LSMinimumSystemVersion: MINIMUM_MACOS },
       osxSign: signingOptions(),

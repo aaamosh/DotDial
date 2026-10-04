@@ -84,6 +84,25 @@ test("a lost allocation response cannot trigger a duplicate create", async () =>
   await assert.rejects(client.create("v=0\r\noffer"), error => error.code === "request_outcome_unknown" && !error.message.includes("private"));
   await assert.rejects(client.create("v=0\r\noffer"), { code: "call_creation_already_attempted" });
   assert.equal(sent, 2);
+  assert.equal(client.creationOutcome, 'unknown');
+});
+
+test('allocation outcomes distinguish unsent, rejected, unknown and created calls', async () => {
+  const cases = [
+    { expected: 'not_sent', fetch: async () => { throw Object.assign(new Error('browser identity failed'), { requestOutcome: 'not_sent' }); } },
+    { expected: 'rejected', fetch: async () => new Response('', { status: 401 }) },
+    { expected: 'unknown', fetch: async () => new Response('', { status: 503 }) },
+    { expected: 'unknown', fetch: async () => new Response('v=0\r\nanswer', { status: 201 }) },
+    { expected: 'created', fetch: async () => new Response('invalid answer', { status: 201, headers: { Location: '/calls/fixture-call' } }) },
+  ];
+  for (const item of cases) {
+    const client = new DotVoiceSession({ threadId: DOTDIAL_THREAD_ID, identity, fetchImpl: item.fetch });
+    client.profileId = PROFILE_ID;
+    await assert.rejects(client.create('v=0\r\noffer'));
+    assert.equal(client.creationOutcome, item.expected);
+    assert.equal(!!client.callId, item.expected === 'created');
+    await assert.rejects(client.create('v=0\r\noffer'), { code: 'call_creation_already_attempted' });
+  }
 });
 
 test("retains the created call ID when the answer SDP is invalid so cleanup can stop it", async () => {

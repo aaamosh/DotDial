@@ -69,6 +69,7 @@
       this.nextRequestId = 1;
       this.pendingAcks = new Map();
       this.pendingSegments = new Set();
+      this.delivery = Promise.resolve();
       this.assembly = null;
       this.readyWaiter = null;
       this.transition = Promise.resolve();
@@ -305,7 +306,13 @@
       this.assembly = null;
       if (message.emit !== true || message.validSamples === 0) return;
 
-      const task = this.deliverSegment(assembly.parts, message.validSamples);
+      const task = this.delivery.then(() => {
+        if (this.failure) throw this.failure;
+        return this.deliverSegment(assembly.parts, message.validSamples);
+      });
+      this.delivery = task.catch(error => {
+        this.fail(safeCode(error, 'recording_failed'));
+      });
       this.pendingSegments.add(task);
       task.catch(error => {
         this.fail(safeCode(error, 'recording_failed'));
