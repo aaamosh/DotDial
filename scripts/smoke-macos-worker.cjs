@@ -49,7 +49,7 @@ async function main() {
   fs.chmodSync(temporaryRoot, 0o700);
   const failures = [];
   const Worker = routedChromiumMedia({ electron: executable, packaged: true, runtimeDir: temporaryRoot,
-    electronArgs: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--mute-audio'],
+    electronArgs: [...(process.arch === 'x64' ? ['--disable-gpu'] : []), '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--mute-audio'],
     mediaOptions: { bufferMs: 0, recordingEnabled: false }, getSpeakersMuted: () => true,
     startupTimeoutMs: 30_000, closeTimeoutMs: 8000 });
   phase = 'worker_start';
@@ -95,6 +95,7 @@ async function main() {
   assert.deepEqual(fs.readdirSync(temporaryRoot), [], 'worker must not leave sibling profiles behind');
   return { packagedWorkerSmoke: 'passed', result: 'passed', platform: process.platform, arch: process.arch,
     electron: process.versions.electron, node: process.versions.node, elapsed_ms: Date.now() - started,
+    software_rendering_requested: process.arch === 'x64',
     packaged_worker_started: true, chromium_offer_created: true,
     fake_microphone_started: true, fake_microphone_stopped: true, speaker_gain_toggle: true,
     child_exit_code: peer.exit.code, child_process_gone: true, owned_process_group_gone: true, private_profile_removed: true,

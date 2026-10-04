@@ -7,7 +7,9 @@ const subscribe = (channel, listener) => {
   if (typeof listener !== 'function') return () => {};
   const wrapped = (_event, value) => listener(value);
   ipcRenderer.on(channel, wrapped);
-  return () => ipcRenderer.removeListener(channel, wrapped);
+  // EventEmitter.removeListener returns the privileged ipcRenderer object,
+  // which must never cross contextBridge as the unsubscribe return value.
+  return () => { ipcRenderer.removeListener(channel, wrapped); };
 };
 
 contextBridge.exposeInMainWorld('dotdial', Object.freeze({

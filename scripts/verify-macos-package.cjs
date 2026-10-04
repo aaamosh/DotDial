@@ -107,7 +107,10 @@ async function main() {
 
     const guiEnv = { ...env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', DOTDIAL_SMOKE_OUTPUT_DIR: reportDirectory };
     delete guiEnv.ELECTRON_RUN_AS_NODE;
-    const gui = run(executable, ['--demo', '--smoke-test', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--mute-audio'], { env: guiEnv });
+    // GitHub's Intel macOS VM has no usable EGL display. Use its software
+    // compositor for CI screenshots; normal application launches are unchanged.
+    const graphicsArgs = process.arch === 'x64' ? ['--disable-gpu'] : [];
+    const gui = run(executable, [...graphicsArgs, '--demo', '--smoke-test', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--mute-audio'], { env: guiEnv });
     evidence.gui = parseJsonLine(gui.stdout, 'packagedSmoke');
     assert.equal(evidence.gui.packagedSmoke, 'passed');
     const worker = run(executable, [path.join(__dirname, 'smoke-macos-worker.cjs'), bundle], { env: { ...guiEnv, ELECTRON_RUN_AS_NODE: '1' } });

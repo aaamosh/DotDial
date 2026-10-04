@@ -23,6 +23,11 @@ async function until(predicate, message, timeoutMs = 12_000) {
 }
 
 async function capture(window, outputDirectory, filename) {
+  await until(() => evaluate(window, `(() => {
+    const section = document.querySelector('.settings-section.active');
+    return document.fonts?.status !== 'loading' &&
+      (!section || Number(getComputedStyle(section).opacity) >= 0.99);
+  })()`), 'packaged_capture_layout_not_ready', 5000);
   const image = await window.webContents.capturePage();
   assert.equal(image.isEmpty(), false, 'packaged window must produce pixels');
   const size = image.getSize();
@@ -309,6 +314,7 @@ async function run() {
     fs.writeSync(1, JSON.stringify({ packagedSmoke: 'passed', result: 'passed', platform: process.platform,
       arch: process.arch, version: app.getVersion(), electron: process.versions.electron,
       chromium: process.versions.chrome, packaged: app.isPackaged, elapsed_ms: Date.now() - started,
+      software_rendering_requested: process.argv.includes('--disable-gpu'),
       gui: { settings_preload: true, form_save_to_disk: true, settings_reload_persistence: true,
         demo_call_active: true, microphone_toggle: true, speakers_toggle: true, hangup_hides_panel: true,
         settings_capture: settingsCapture, panel_capture: panelCapture },
