@@ -243,6 +243,11 @@ void (async () => {
   await script(settings, 'window.dotdial.command("WAKE"); window.dotdial.command("STOP")');
   await delay(800);
   assert.equal(panel.isVisible(), false, 'cancelled_preview_reopened');
+  const playersBeforeClose = previewPlayers.length;
+  await script(settings, 'document.querySelector("#preview-sound").click()');
+  await until(() => previewPlayers.length > playersBeforeClose, 'closing_preview_missing');
+  settings.close();
+  await until(() => previewPlayers.at(-1).killed, 'settings_close_left_sound_playing');
   console.log(JSON.stringify({ result: 'passed', mode: 'synthetic_preview', checks: ['ui_config_write', 'external_json_reload', 'conflict_protection', 'invalid_json_recovery', 'connection_sound_save', 'custom_file_choose', 'preview_and_stop', 'custom_decode_and_preview', 'cancel_file_choose', 'controls', 'panel_lifecycle', 'transparent_corners', 'three_controls', 'speaker_badge', 'native_click_and_drag', 'context_menu_everywhere', 'replay_stop'], screenshots: output, comparisons }));
   app.quit();
 })().catch(error => { console.error('UI_SMOKE_FAILED', error.message); app.exit(1); });

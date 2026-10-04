@@ -295,7 +295,10 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
     settings = new BrowserWindow(optionsFor({ width: 1020, height: 760, minWidth: 860, minHeight: 650, transparent: false, resizable: true }));
     settings.setTitle('DotDial');
     loadWindow(settings, 'settings');
-    settings.on('closed', () => { settings = null; });
+    settings.on('closed', () => {
+      settings = null;
+      try { Promise.resolve(stopSoundPreview?.()).catch(() => {}); } catch {}
+    });
     settings.once('ready-to-show', () => settings?.show());
     return settings;
   };
