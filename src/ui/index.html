@@ -142,11 +142,10 @@
 
     <section id="panel-view" class="panel-view" hidden aria-label="DotDial call controls">
       <div class="panel-glass" id="panel-glass">
-        <div class="panel-reflection"></div><div class="panel-topline"><span class="panel-status-dot" id="panel-status-dot"></span><span id="panel-status" class="panel-status" data-i18n="connecting">Connecting</span><span class="panel-wave" id="panel-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="panel-dot-name" id="panel-dot-name">Dot</span></div>
+        <div class="panel-reflection" aria-hidden="true"></div>
         <div class="panel-controls">
           <button id="panel-mic" class="panel-control mic-control" type="button" aria-label="Mute microphone" title="Mute microphone"><span class="icon-wrap" data-icon="mic"></span><span class="sr-only" data-i18n="microphone">Microphone</span></button>
-          <button id="panel-speakers" class="panel-control speaker-control" type="button" aria-label="Mute speakers" title="Mute speakers"><span class="icon-wrap" data-icon="speaker"></span><span class="sr-only" data-i18n="speakers">Speakers</span></button>
-          <button id="panel-missed" class="panel-control missed-control" type="button" aria-label="Play missed replies" title="Play missed replies" hidden><span class="icon-wrap" data-icon="replay"></span><span class="missed-badge" id="panel-missed-count">0</span><span class="sr-only" data-i18n="playMissed">Play missed replies</span></button>
+          <button id="panel-speakers" class="panel-control speaker-control" type="button" aria-label="Mute speakers" title="Mute speakers"><span class="icon-wrap" data-icon="speaker"></span><span class="missed-badge" id="panel-missed-count" aria-hidden="true" hidden>0</span><span class="sr-only" data-i18n="speakers">Speakers</span></button>
           <button id="panel-hangup" class="panel-control hangup-control" type="button" aria-label="End call" title="End call"><span class="icon-wrap" data-icon="hangup"></span><span class="sr-only" data-i18n="endCall">End call</span></button>
         </div>
       </div>

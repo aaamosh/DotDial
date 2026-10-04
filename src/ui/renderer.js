@@ -71,13 +71,11 @@ const COPY = {
 };
 
 const ICONS = {
-  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"></path></svg>',
-  micOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6M4 4l16 16"></path></svg>',
-  speaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4H4z"></path><path d="M16 9.5a4 4 0 0 1 0 5M18.5 7a7.5 7.5 0 0 1 0 10"></path></svg>',
-  speakerOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4H4zM17 9l5 6m0-6-5 6"></path></svg>',
-  hangup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15.5c4.7-4.1 11.3-4.1 16 0l-2.5 3.2a1 1 0 0 1-1.3.2l-2.4-1.5a1 1 0 0 1-.45-1.04l.35-1.55a12.8 12.8 0 0 0-3.4 0l.35 1.55a1 1 0 0 1-.45 1.04l-2.4 1.5a1 1 0 0 1-1.3-.2L4 15.5z"></path></svg>',
-  replay: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 11.5a8.5 8.5 0 1 1 2.2 6.1M3.5 5v6.5H10"></path><path d="M11 9v6l5-3-5-3z"></path></svg>',
-  stop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>',
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v4M8 22h8"/></svg>',
+  micOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v4M8 22h8"/><path d="m15 13 6 6m0-6-6 6" stroke="#202226" stroke-width="4"/><path d="m15 13 6 6m0-6-6 6" stroke="#bb7276" stroke-width="2.4"/></svg>',
+  speaker: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 11.5h5l6-5v19l-6-5h-5z"/><path d="M20 11a8 8 0 0 1 0 10M22.5 7.5a13 13 0 0 1 0 17"/></svg>',
+  speakerOff: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 11.5h5l6-5v19l-6-5h-5z"/><path d="m19 12 7 7m0-7-7 7" stroke="#202226" stroke-width="4"/><path d="m19 12 7 7m0-7-7 7" stroke="#bb7276" stroke-width="2.3"/></svg>',
+  hangup: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 2.5c-.8-.5-1.7-.3-2.3.3L2.5 4c-.8.8-.8 2-.5 3.1 1.7 6.7 8.2 13.2 14.9 14.9 1.1.3 2.3.3 3.1-.5l1.2-1.2c.6-.6.8-1.5.3-2.3l-2.4-3.6c-.5-.7-1.4-1-2.2-.5l-2 1.2a16.6 16.6 0 0 1-6-6l1.2-2c.5-.8.2-1.7-.5-2.2z"/></svg>',
 };
 
 const DEFAULTS = {
@@ -386,7 +384,6 @@ function updateSidebar(config, state) {
   const hasDot = Boolean(config?.dot?.url);
   dot.classList.toggle('ready', hasDot && !state.last_error);
   dot.classList.toggle('error', Boolean(state.last_error || state.start_error));
-  $('#panel-dot-name').textContent = name;
 }
 function phaseText(state) {
   const phase = String(state.state || 'ready');
@@ -413,16 +410,12 @@ function updatePanel(state = {}) {
   const active = state.state === 'active';
   const micMuted = state.microphone_muted === true || (active && state.local_listening === false && state.microphone_muted !== false);
   const speakersMuted = state.speakers_muted === true;
-  const dot = $('#panel-status-dot');
-  if (dot) {
-    dot.className = 'panel-status-dot';
-    if (state.state === 'active') dot.classList.add('call');
-    else if (state.state === 'starting' || state.state === 'stopping') dot.classList.add('connecting');
-    else if (state.last_error || state.start_error) dot.classList.add('error');
-    else if (state.local_listening || state.wake_listening) dot.classList.add('listening');
-  }
-  if ($('#panel-status')) $('#panel-status').textContent = phaseText(state);
-  if ($('#panel-wave')) $('#panel-wave').classList.toggle('active', active || state.missed_playing === true);
+  const replayOnly = state.missed_playing === true && !busy;
+  const missedCount = Math.max(0, Math.trunc(Number(state.missed_count) || 0));
+  const status = [String(loadedConfig?.dot?.displayName || 'DotDial'), phaseText(state)];
+  if (missedCount) status.push(`${missedCount} missed replies`);
+  if (state.missed_recording) status.push('Saving replies');
+  if ($('#panel-view')) $('#panel-view').title = status.join(' · ');
   if ($('#panel-mic')) {
     $('#panel-mic').classList.toggle('muted', micMuted);
     $('#panel-mic').disabled = !active || state.microphone_changing === true;
@@ -434,25 +427,21 @@ function updatePanel(state = {}) {
     $('#panel-speakers').classList.toggle('muted', speakersMuted);
     $('#panel-speakers').disabled = !(active || state.missed_playing === true) || state.speakers_changing === true;
     $('#panel-speakers').setAttribute('aria-label', speakersMuted ? copy('unmuteSpeakers') : copy('muteSpeakers'));
-    $('#panel-speakers').title = speakersMuted ? copy('unmuteSpeakers') : copy('muteSpeakers');
+    const speakerAction = speakersMuted ? copy('unmuteSpeakers') : copy('muteSpeakers');
+    $('#panel-speakers').title = missedCount ? `${speakerAction} · ${missedCount} missed replies · Right-click to play` : speakerAction;
     setIcon($('#panel-speakers'), speakersMuted ? 'speakerOff' : 'speaker');
   }
   if ($('#panel-hangup')) {
-    $('#panel-hangup').disabled = !busy;
-    $('#panel-hangup').title = copy('endCall');
-    $('#panel-hangup').setAttribute('aria-label', copy('endCall'));
+    $('#panel-hangup').disabled = !(['starting', 'active'].includes(state.state) || replayOnly);
+    const action = replayOnly ? copy('stopMissed') : copy('endCall');
+    $('#panel-hangup').title = action;
+    $('#panel-hangup').setAttribute('aria-label', action);
   }
-  const missedCount = Math.max(0, Number(state.missed_count) || 0);
-  const showMissed = missedCount > 0 || state.missed_playing === true;
-  if ($('#panel-missed')) {
-    $('#panel-missed').hidden = !showMissed;
-    $('#panel-missed').disabled = !showMissed;
-    $('#panel-missed-count').textContent = String(Math.min(missedCount, 99));
-    $('#panel-missed-count').hidden = missedCount < 1;
-    const label = state.missed_playing ? copy('stopMissed') : `${copy('playMissed')} (${missedCount})`;
-    $('#panel-missed').title = label;
-    $('#panel-missed').setAttribute('aria-label', label);
-    setIcon($('#panel-missed'), state.missed_playing ? 'stop' : 'replay');
+  const badge = $('#panel-missed-count');
+  if (badge) {
+    badge.textContent = missedCount > 99 ? '99+' : String(missedCount);
+    badge.dataset.digits = String(badge.textContent.length);
+    badge.hidden = missedCount < 1;
   }
   updateSidebar(loadedConfig || DEFAULTS, state);
 }
@@ -495,34 +484,41 @@ function setupPanel() {
   if (!panel) return;
   $('#panel-mic').addEventListener('click', () => runCommand(latestSnapshot.microphone_muted ? 'UNMUTE' : 'MUTE', { notice: true }));
   $('#panel-speakers').addEventListener('click', () => runCommand(latestSnapshot.speakers_muted ? 'SPEAKERS_UNMUTE' : 'SPEAKERS_MUTE', { notice: true }));
-  $('#panel-hangup').addEventListener('click', () => runCommand('STOP', { notice: true }));
-  $('#panel-missed').addEventListener('click', () => runCommand(latestSnapshot.missed_playing ? 'MISSED_STOP' : 'MISSED_PLAY', { notice: true }));
-  panel.addEventListener('contextmenu', event => { event.preventDefault(); void api.showMenu(); });
+  $('#panel-hangup').addEventListener('click', () => {
+    const busy = ['starting', 'active', 'stopping'].includes(latestSnapshot.state);
+    void runCommand(latestSnapshot.missed_playing && !busy ? 'MISSED_STOP' : 'STOP', { notice: true });
+  });
   let drag = null;
-  let suppressClickUntil = 0;
+  const buttonAt = event => document.elementFromPoint(event.clientX, event.clientY)?.closest('.panel-control');
+  panel.addEventListener('contextmenu', event => { event.preventDefault(); drag = null; void api.showMenu(); });
   panel.addEventListener('pointerdown', event => {
     if (event.button !== 0) return;
-    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
-    try { event.target.setPointerCapture(event.pointerId); } catch {}
+    event.preventDefault();
+    drag = { id: event.pointerId, x: event.screenX, y: event.screenY, moved: false, button: buttonAt(event) };
+    panel.setPointerCapture(event.pointerId);
   });
   panel.addEventListener('pointermove', event => {
     if (!drag || drag.id !== event.pointerId) return;
-    const totalX = event.clientX - drag.x, totalY = event.clientY - drag.y;
-    if (!drag.moved && Math.hypot(totalX, totalY) < 6) return;
+    // Global coordinates stay stable when the window moves beneath the pointer.
+    const dx = event.screenX - drag.x, dy = event.screenY - drag.y;
+    if (!drag.moved && Math.max(Math.abs(dx), Math.abs(dy)) < 6) return;
     drag.moved = true;
-    try { panel.setPointerCapture(event.pointerId); } catch {}
-    const dx = Number(event.movementX) || 0, dy = Number(event.movementY) || 0;
+    drag.x = event.screenX; drag.y = event.screenY;
     if (dx || dy) void api.movePanel(dx, dy);
   });
-  const finishDrag = event => {
+  panel.addEventListener('pointerup', event => {
     if (!drag || drag.id !== event.pointerId) return;
-    if (drag.moved) suppressClickUntil = Date.now() + 320;
+    const activate = !drag.moved && drag.button && drag.button === buttonAt(event) && !drag.button.disabled;
+    const button = drag.button;
     drag = null;
-  };
-  panel.addEventListener('pointerup', finishDrag);
-  panel.addEventListener('pointercancel', finishDrag);
+    if (activate) button.click();
+  });
+  const cancelDrag = event => { if (drag?.id === event.pointerId) drag = null; };
+  panel.addEventListener('pointercancel', cancelDrag);
+  panel.addEventListener('lostpointercapture', cancelDrag);
+  // Pointer releases are dispatched above; keep keyboard and accessibility clicks.
   panel.addEventListener('click', event => {
-    if (Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); }
+    if (event.detail > 0) { event.preventDefault(); event.stopImmediatePropagation(); }
   }, true);
 }
 function setupSettings() {

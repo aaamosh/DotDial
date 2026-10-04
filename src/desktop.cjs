@@ -193,13 +193,15 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   };
   const createPanel = () => {
     if (panel && !panel.isDestroyed()) return panel;
-    panel = new BrowserWindow(optionsFor({ width: 200, height: 72, minWidth: 200, minHeight: 72, transparent: true, alwaysOnTop: true, resizable: false }));
+    panel = new BrowserWindow({
+      ...optionsFor({ width: 122, height: 42, minWidth: 122, minHeight: 42, transparent: true, alwaysOnTop: true, resizable: false }),
+      focusable: false,
+    });
     panel.setAlwaysOnTop(true, 'floating');
     const display = screen.getPrimaryDisplay();
-    panel.setPosition(display.workArea.x + display.workArea.width - 224, display.workArea.y + display.workArea.height - 96);
+    panel.setPosition(display.workArea.x + Math.max(0, display.workArea.width - 142), display.workArea.y + Math.max(0, display.workArea.height - 114));
     loadWindow(panel, 'panel');
     panel.on('closed', () => { panel = null; });
-    panel.on('blur', () => {});
     return panel;
   };
   const openSettings = () => {
@@ -304,7 +306,8 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   handle(IPC.move, (_event, payload) => {
     if (!panel || panel.isDestroyed() || !payload || !Number.isFinite(payload.dx) || !Number.isFinite(payload.dy) || Math.abs(payload.dx) > 500 || Math.abs(payload.dy) > 500) return { status: 'ignored' };
     const [x, y] = panel.getPosition();
-    const bounds = { x: x + Math.round(payload.dx), y: y + Math.round(payload.dy), width: 200, height: 72 };
+    const { width, height } = panel.getBounds();
+    const bounds = { x: x + Math.round(payload.dx), y: y + Math.round(payload.dy), width, height };
     const display = screen.getDisplayMatching(bounds);
     const area = display.workArea;
     const nx = Math.max(area.x, Math.min(area.x + area.width - bounds.width, bounds.x));

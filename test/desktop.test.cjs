@@ -91,7 +91,7 @@ test('call controls expose icon-only labels and rounded glass clipping', () => {
     assert.match(html, new RegExp(`id="${id}"[^>]+aria-label="[^"]+"`));
   }
   assert.match(css, /\.panel-glass\s*\{[^}]*overflow:\s*hidden/s);
-  assert.match(css, /\.panel-glass\s*\{[^}]*border-radius:\s*23px/s);
+  assert.match(css, /\.panel-glass\s*\{[^}]*border-radius:\s*12px/s);
 });
 
 test('Quit menu waits for shutdown and ignores repeated quit requests', async () => {
