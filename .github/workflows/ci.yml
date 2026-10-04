@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - name: Install pinned project dependencies
+        run: npm ci
+      - name: Run offline Node tests
+        run: npm test
+      - name: Audit the public source tree
+        run: npm run check:public
+      - name: Compile the optional wake installer
+        run: python3 -m py_compile scripts/setup-wake.py
+      - name: Build Linux x86_64 packages
+        run: npm run package
+      - name: Verify package metadata and bundled CLI without system Node
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(dist/DotDial-*-linux-x64.tar.gz)
+          debs=(dist/dotdial_*_amd64.deb)
+          test "${#archives[@]}" -eq 1
+          test "${#debs[@]}" -eq 1
+          archive="${archives[0]}"
+          deb="${debs[0]}"
+          test -s "$archive"
+          test -s "$deb"
+          test -s dist/SHA256SUMS
+          (cd dist && sha256sum --check SHA256SUMS)
+          if tar -tzf "$archive" | grep -Ei '(^|/)(__pycache__/|[^/]+\.(pyc|pyo|log)(\.[0-9]+)?$|[^/]+\.(swp|swo|tmp|bak)$|/\.[^/]+|(^|/)src/.*\.test\.)'; then
+            echo 'Unexpected cache, hidden, temporary, log, or test file was packaged.' >&2
+            exit 1
+          fi
+          tar -tzf "$archive" | grep -Fx 'DotDial-linux-x64/dotdial'
+          tar -tzf "$archive" | grep -Fx 'DotDial-linux-x64/install.sh'
+          tar -tzf "$archive" | grep -Fx 'DotDial-linux-x64/resources/app/scripts/setup-wake.py'
+          tar -tzf "$archive" | grep -Fx 'DotDial-linux-x64/resources/app/scripts/wake-requirements.txt'
+          tar -tzf "$archive" | grep -Fx 'DotDial-linux-x64/resources/app/src/sounds/calling.wav'
+          tar -tzf "$archive" | grep -Fx 'DotDial-linux-x64/resources/app/src/sounds/connected.wav'
+          tar -tzf "$archive" | grep -Fx 'DotDial-linux-x64/resources/app/src/sounds/ended.wav'
+          tar -tzf "$archive" | grep -Fx 'DotDial-linux-x64/locales/en-US.pak'
+          if tar -tzf "$archive" | grep -E '^DotDial-linux-x64/locales/[^/]+\.pak$' | grep -v -Fx 'DotDial-linux-x64/locales/en-US.pak'; then
+            echo 'Unexpected Chromium locale was packaged.' >&2
+            exit 1
+          fi
+          dpkg-deb --field "$deb" Package Version Architecture Depends
+          extracted="$RUNNER_TEMP/dotdial-package-test"
+          extracted_deb="$RUNNER_TEMP/dotdial-deb-test"
+          config_home="$RUNNER_TEMP/dotdial-config-test"
+          no_node_path="$RUNNER_TEMP/dotdial-path-without-node"
+          mkdir -p "$extracted" "$extracted_deb" "$no_node_path"
+          ln -s "$(command -v readlink)" "$no_node_path/readlink"
+          tar -xzf "$archive" -C "$extracted"
+          dpkg-deb -x "$deb" "$extracted_deb"
+          sh -n "$extracted/DotDial-linux-x64/install.sh"
+          if find "$extracted_deb/opt/dotdial/resources/app/src" \( -type d \( -name __pycache__ -o -name '.*' \) -o -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '*.log' -o -name '.*' -o -name '*.swp' -o -name '*.swo' -o -name '*.tmp' -o -name '*.bak' -o -name '*.test.cjs' -o -name '*.test.mjs' -o -name '*.test.js' \) \) -print -quit | grep .; then
+            echo 'Unexpected cache, hidden, temporary, log, or test file was packaged.' >&2
+            exit 1
+          fi
+          expected_config="$config_home/dotdial/config.json"
+          actual_config=$(PATH="$no_node_path" XDG_CONFIG_HOME="$config_home" "$extracted/DotDial-linux-x64/dotdial" config path)
+          test "$actual_config" = "$expected_config"
+          PATH="$no_node_path" XDG_CONFIG_HOME="$config_home" "$extracted/DotDial-linux-x64/dotdial" config show > /dev/null
+          mkdir -p "$extracted_deb/usr/local/bin"
+          ln -s ../../bin/dotdial "$extracted_deb/usr/local/bin/dotdial"
+          deb_config_home="$RUNNER_TEMP/dotdial-deb-config-test"
+          expected_deb_config="$deb_config_home/dotdial/config.json"
+          actual_deb_config=$(PATH="$no_node_path" XDG_CONFIG_HOME="$deb_config_home" "$extracted_deb/usr/local/bin/dotdial" config path)
+          test "$actual_deb_config" = "$expected_deb_config"
+          PATH="$no_node_path" XDG_CONFIG_HOME="$deb_config_home" "$extracted_deb/usr/local/bin/dotdial" config show > /dev/null
+      - name: Save Linux packages as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotdial-linux-x64
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
