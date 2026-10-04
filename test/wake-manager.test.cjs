@@ -191,3 +191,21 @@ test('the same local listener stays alive through a call and all mute combinatio
   assert.deepEqual(f.wakes, ['wake'], 'idle replay must not trigger a new call');
   await f.manager.stopping;
 });
+
+test('changing the phrase during a call replaces only the listener and ignores stale detections', async t => {
+  const f = fixture(t); f.manager.configure(enabledConfig);
+  await until(() => f.children.length === 1);
+  const old = f.children[0]; old.ready();
+  f.manager.setCallState({ state: 'active', microphone_muted: true });
+  f.manager.configure({ ...enabledConfig, phrase: 'Hello Dot' });
+  f.manager.configure({ ...enabledConfig, phrase: 'Computer' });
+  old.wake();
+  await until(() => f.children.length === 2);
+  const replacement = f.children[1];
+  assert.equal(replacement.args[replacement.args.indexOf('--phrase') + 1], 'Computer');
+  replacement.ready(); replacement.wake(); old.wake();
+  assert.equal(f.manager.status, 'listening');
+  assert.equal(f.manager.paused, false);
+  assert.deepEqual(f.wakes, ['wake']);
+  assert.equal(f.children.length, 2);
+});

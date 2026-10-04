@@ -67,6 +67,6 @@ Agent requests have a three-second timeout and responses are limited to 64 KiB. 
 
 ## Reloading and audio devices
 
-The app notices external config edits within about a second. Invalid JSON leaves the last valid settings running and reports a config error. Preferences that would affect a running call apply after it ends; changing `network.signalingLauncher` requires restarting DotDial.
+The app notices external config edits within about a second. Invalid JSON leaves the last valid settings running and reports a config error. Wake-word edits take effect during calls and recovery without restarting the app or call. Other preferences that would affect a running call apply after it ends; changing `network.signalingLauncher` requires restarting DotDial.
 
 Device choices use `label:<device name>` rather than Chromium's profile-specific IDs. Scan in Settings to choose a device. If it is removed or its name is ambiguous, DotDial reports an error instead of silently choosing another microphone. `default` follows the operating system's default device. Device scanning does not start a microphone stream.

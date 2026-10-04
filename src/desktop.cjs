@@ -38,6 +38,8 @@ function presentState(state = {}) {
   const phase = String(state.state || state.phase || 'ready');
   const missedCount = Math.max(0, Math.min(999, Number(state.missed_count) || 0));
   if (phase === 'active') return { phase, tone: 'call', missedCount, tooltip: `DotDial · In call${missedCount ? ` · ${missedCount} missed` : ''}` };
+  if (state.web_action_required === true) return { phase, tone: 'warning', missedCount, tooltip: 'DotDial · Verify ChatGPT sign-in' };
+  if (state.web_verifying === true) return { phase, tone: 'connecting', missedCount, tooltip: 'DotDial · Checking ChatGPT access' };
   if (phase === 'starting' || phase === 'stopping') return { phase, tone: 'connecting', missedCount, tooltip: `DotDial · ${phase === 'starting' ? 'Connecting' : 'Ending call'}${missedCount ? ` · ${missedCount} missed` : ''}` };
   if (phase === 'recovery_required' || state.last_error || state.start_error || state.config_error || state.wake_status === 'error' || state.wake_status === 'setup_required') return { phase, tone: 'warning', missedCount, tooltip: `DotDial · Check connection${missedCount ? ` · ${missedCount} missed` : ''}` };
   if (state.wake_status === 'starting' || state.wake_status === 'installing') return { phase, tone: 'connecting', missedCount, tooltip: `DotDial · Preparing wake word${missedCount ? ` · ${missedCount} missed` : ''}` };
@@ -187,6 +189,40 @@ function clampPanelPosition(position, area, size) {
   };
 }
 
+function settingsWindowGeometry(workArea) {
+  const x = Number.isFinite(workArea?.x) ? Math.floor(workArea.x) : 0;
+  const y = Number.isFinite(workArea?.y) ? Math.floor(workArea.y) : 0;
+  const areaWidth = Math.max(1, Math.floor(Number(workArea?.width) || 680));
+  const areaHeight = Math.max(1, Math.floor(Number(workArea?.height) || 507));
+  const width = Math.min(680, areaWidth);
+  const height = Math.min(507, areaHeight);
+  const minWidth = Math.min(520, width);
+  const minHeight = Math.min(360, height);
+  return {
+    x: x + Math.floor((areaWidth - width) / 2),
+    y: y + Math.floor((areaHeight - height) / 2),
+    width, height, minWidth, minHeight,
+  };
+}
+
+function clampSettingsBounds(bounds, workArea) {
+  const x = Number.isFinite(workArea?.x) ? Math.floor(workArea.x) : 0;
+  const y = Number.isFinite(workArea?.y) ? Math.floor(workArea.y) : 0;
+  const areaWidth = Math.max(1, Math.floor(Number(workArea?.width) || 680));
+  const areaHeight = Math.max(1, Math.floor(Number(workArea?.height) || 507));
+  const minWidth = Math.min(520, areaWidth);
+  const minHeight = Math.min(360, areaHeight);
+  const width = Math.min(areaWidth, Math.max(minWidth, Math.floor(Number(bounds?.width) || minWidth)));
+  const height = Math.min(areaHeight, Math.max(minHeight, Math.floor(Number(bounds?.height) || minHeight)));
+  const requestedX = Number.isFinite(bounds?.x) ? Math.floor(bounds.x) : x;
+  const requestedY = Number.isFinite(bounds?.y) ? Math.floor(bounds.y) : y;
+  return {
+    x: Math.max(x, Math.min(x + areaWidth - width, requestedX)),
+    y: Math.max(y, Math.min(y + areaHeight - height, requestedY)),
+    width, height,
+  };
+}
+
 function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}, getAudioDevices, chooseSoundFile, previewSound, stopSoundPreview } = {}) {
   const electron = require('electron');
   const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, dialog } = electron;
@@ -292,10 +328,33 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   const openSettings = () => {
     if (disposed) return null;
     if (settings && !settings.isDestroyed()) { settings.show(); settings.focus(); send(settings, IPC.state, snapshot); return settings; }
-    settings = new BrowserWindow(optionsFor({ width: 1020, height: 760, minWidth: 860, minHeight: 650, transparent: false, resizable: true }));
+    const initial = settingsWindowGeometry(screen.getPrimaryDisplay().workArea);
+    settings = new BrowserWindow({
+      ...optionsFor({ ...initial, transparent: false, resizable: true }),
+      x: initial.x, y: initial.y,
+    });
+    const keepSettingsInWorkArea = () => {
+      if (!settings || settings.isDestroyed()) return;
+      const bounds = settings.getBounds();
+      const workArea = screen.getDisplayMatching(bounds).workArea;
+      const minWidth = Math.min(520, Math.max(1, Math.floor(workArea.width)));
+      const minHeight = Math.min(360, Math.max(1, Math.floor(workArea.height)));
+      const minimum = settings.getMinimumSize();
+      if (minimum[0] !== minWidth || minimum[1] !== minHeight) settings.setMinimumSize(minWidth, minHeight);
+      const fitted = clampSettingsBounds(bounds, workArea);
+      if (bounds.x !== fitted.x || bounds.y !== fitted.y || bounds.width !== fitted.width || bounds.height !== fitted.height) {
+        settings.setBounds(fitted, false);
+      }
+    };
+    settings.on('move', keepSettingsInWorkArea);
+    settings.on('resize', keepSettingsInWorkArea);
+    screen?.on?.('display-metrics-changed', keepSettingsInWorkArea);
+    screen?.on?.('display-removed', keepSettingsInWorkArea);
     settings.setTitle('DotDial');
     loadWindow(settings, 'settings');
     settings.on('closed', () => {
+      screen?.removeListener?.('display-metrics-changed', keepSettingsInWorkArea);
+      screen?.removeListener?.('display-removed', keepSettingsInWorkArea);
       settings = null;
       try { Promise.resolve(stopSoundPreview?.()).catch(() => {}); } catch {}
     });
@@ -351,7 +410,7 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
       { label: 'Clear missed recordings…', enabled: missed > 0, click: () => void clearMissed() },
       { type: 'separator' },
       { label: 'Open settings', click: openSettings },
-      { label: 'Sign in to ChatGPT', click: () => void callCommand('LOGIN') },
+      { label: snapshot.web_action_required === true ? 'Verify ChatGPT sign-in' : 'Sign in to ChatGPT', click: () => void callCommand('LOGIN') },
       { type: 'separator' },
       { label: 'Quit DotDial', click: () => void callCommand('QUIT') },
     ];
@@ -494,4 +553,4 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   return api;
 }
 
-module.exports = { createDesktop, presentState, createTrayPng, readPanelPosition, savePanelPosition, clampPanelPosition, IPC };
+module.exports = { createDesktop, presentState, createTrayPng, readPanelPosition, savePanelPosition, clampPanelPosition, settingsWindowGeometry, clampSettingsBounds, IPC };

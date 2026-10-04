@@ -61,6 +61,7 @@ const COPY = {
     storageLimit: 'Storage limit', storageLimitHint: 'When full, new clips stop saving until space is freed.', callLimit: 'Call safety limit',
     callLimitHelp: 'Automatically end a call after the selected maximum duration.', maxCallMinutes: 'Maximum call length', minutes: 'minutes',
     allChangesSaved: 'All changes saved', reloadSettings: 'Reload settings', connecting: 'Connecting', inCall: 'In call',
+    callSettingsPending: 'Call settings will apply after the call.',
     endingCall: 'Ending call', wakeListening: 'Wake word listening', microphoneMuted: 'Microphone muted', speakersMuted: 'Speakers muted',
     playingMissed: 'Playing missed replies', errorState: 'Needs attention', playMissed: 'Play missed replies', stopMissed: 'Stop missed replies', endCall: 'End call',
     muteMicrophone: 'Mute microphone', unmuteMicrophone: 'Unmute microphone', muteSpeakers: 'Mute speakers', unmuteSpeakers: 'Unmute speakers',
@@ -600,7 +601,7 @@ function updateSettingsState(state = {}) {
     const pending = Boolean(state.config_error || state.config_pending);
     const saved = $('#save-status');
     saved.textContent = state.config_error ? 'Invalid settings JSON. Correct the file and save it.'
-      : state.config_pending ? 'Settings will apply after the call.' : copy('allChangesSaved');
+      : state.config_pending ? copy('callSettingsPending') : copy('allChangesSaved');
     saved.classList.toggle('success', !pending);
     const indicator = $('.saved-check');
     indicator.textContent = state.config_error ? '!' : state.config_pending ? '…' : '✓';

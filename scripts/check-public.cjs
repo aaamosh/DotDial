@@ -15,8 +15,8 @@ const SKIP_DIRS = new Set([
 // call sound assets have been reviewed; any change requires a fresh review.
 const REVIEWED_BINARIES = new Map([
   ['docs/images/panel.png', '31430168cd4cbac99ee08ab89c0ade7d492f16b20c0f856ad53390c58a9765ea'],
-  ['docs/images/settings.png', '4bd2844aa7d18a3bb7d8eea0ea90ace1b200539dcdd8d0068a906fa62c4892be'],
-  ['docs/images/voice.png', 'd8ab8a7c66fcb7f2c3c43eb8e54b88a5e7245fca38eb6ac0e7cc6bfed111f78e'],
+  ['docs/images/settings.png', '9424f0d148300e12322386d9aef0eb63aa2209ad11fb000c66304e726277252d'],
+  ['docs/images/voice.png', '481f8d2a8a8f75c872088c62827ab3740a0c33bcd1c1321404c09a9005b64961'],
   ['src/sounds/calling.wav', '0359ba1636107f1ee5cef6c87c2293d90391dad3580f3a51834a37ac44ba14ce'],
   ['src/sounds/connected.wav', '494831a4b41279a9191ae854cf8c347f7d2cd6adcf777afb448e3ea3f3532eb5'],
   ['src/sounds/activated.wav', '6a08aab9c1c422f2e218379f09cfe09398b046a77ac57078182bfe3bfd174e3a'],

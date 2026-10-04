@@ -3,10 +3,11 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const net = require('node:net');
 const path = require('node:path');
 const { promisify } = require('node:util');
 const { execFile } = require('node:child_process');
-const { app, BrowserWindow, ipcMain, nativeImage, Tray, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage, Tray, dialog, screen } = require('electron');
 const { IPC } = require('../src/desktop.cjs');
 const execFileAsync = promisify(execFile);
 // Exercise the full preview UI and IPC without using desktop speakers.
@@ -55,6 +56,26 @@ Tray.prototype.popUpContextMenu = function (menu, ...args) {
   return originalPopUpContextMenu.call(this, menu, ...args);
 };
 const xdotool = (...args) => execFileAsync('xdotool', args.map(String), { timeout: 5000 });
+const queryRuntimeState = () => new Promise((resolve, reject) => {
+  const socket = net.createConnection(path.join(path.dirname(demoConfig), 'run', 'dotdial.sock'));
+  let buffer = '', settled = false;
+  const finish = (error, value) => {
+    if (settled) return;
+    settled = true; clearTimeout(timer);
+    if (error) { socket.destroy(); reject(error); }
+    else { socket.end(); resolve(value); }
+  };
+  const timer = setTimeout(() => finish(new Error('status_socket_timeout')), 3000);
+  socket.once('connect', () => socket.write('STATUS\n'));
+  socket.on('data', chunk => {
+    buffer += chunk.toString();
+    const newline = buffer.indexOf('\n');
+    if (newline < 0) return;
+    try { finish(null, JSON.parse(buffer.slice(0, newline))); }
+    catch { finish(new Error('status_socket_invalid_response')); }
+  });
+  socket.once('error', error => finish(error));
+});
 const clickAt = async (x, y, button = 1) => {
   await xdotool('mousemove', Math.round(x), Math.round(y));
   await delay(40);
@@ -104,6 +125,21 @@ void (async () => {
   await app.whenReady();
   const settings = await until(() => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('view=settings')), 'settings_missing');
   await until(() => script(settings, '!!window.dotdial && !!document.querySelector("#dot-display-name").value'), 'settings_not_ready');
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  const expectedSettingsSize = [Math.min(680, primaryWorkArea.width), Math.min(507, primaryWorkArea.height)];
+  const actualSettingsSize = settings.getSize();
+  assert.ok(actualSettingsSize[0] <= expectedSettingsSize[0] && actualSettingsSize[0] >= Math.min(520, expectedSettingsSize[0]) - 1, 'settings_width_adapts_to_work_area');
+  assert.ok(actualSettingsSize[1] <= expectedSettingsSize[1] && actualSettingsSize[1] >= Math.min(360, expectedSettingsSize[1]) - 1, 'settings_height_adapts_to_work_area');
+  assert.deepEqual(settings.getMinimumSize(), [Math.min(520, expectedSettingsSize[0]), Math.min(360, expectedSettingsSize[1])]);
+  const settingsBounds = settings.getBounds();
+  const settingsWorkArea = screen.getDisplayMatching(settingsBounds).workArea;
+  assert.ok(settingsBounds.x >= settingsWorkArea.x && settingsBounds.y >= settingsWorkArea.y, 'settings_inside_work_area_origin');
+  assert.ok(settingsBounds.x + settingsBounds.width <= settingsWorkArea.x + settingsWorkArea.width, 'settings_inside_work_area_right');
+  assert.ok(settingsBounds.y + settingsBounds.height <= settingsWorkArea.y + settingsWorkArea.height, 'settings_inside_work_area_bottom');
+  settings.webContents.send(IPC.state, { state: 'ready', config_pending: true });
+  await until(() => script(settings, 'document.querySelector("#save-status").textContent === "Call settings will apply after the call."'), 'pending_call_settings_copy_missing');
+  settings.webContents.send(IPC.state, { state: 'ready', config_pending: false });
+  await until(() => script(settings, 'document.querySelector("#save-status").textContent === "All changes saved"'), 'pending_call_settings_copy_not_cleared');
   let envelope = await script(settings, 'window.dotdial.readConfig()');
   demoConfig = envelope.path;
   assert.equal(envelope.config.audio.bufferMs, 0);
@@ -127,7 +163,7 @@ void (async () => {
   await until(() => script(settings, 'document.querySelector("#save-status").textContent === "All changes saved"'), 'restored_json_status_not_cleared');
   assert.equal(await script(settings, 'document.querySelector(".saved-check").classList.contains("warning")'), false);
   await script(settings, 'document.querySelector(".nav-item[data-section=connect]").click()');
-  await delay(500);
+  await delay(3200);
   fs.writeFileSync(path.join(output, 'settings.png'), (await settings.webContents.capturePage()).toPNG());
   await script(settings, 'document.querySelector(".nav-item[data-section=voice]").click()');
   await delay(500);
@@ -169,6 +205,37 @@ void (async () => {
   const panel = await until(() => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('view=panel')), 'panel_missing');
   await until(() => script(panel, '!document.querySelector("#panel-mic").disabled'), 'panel_not_active');
   assert.equal(panel.isVisible(), true);
+  const activeStateBeforeConfig = await queryRuntimeState();
+  assert.equal(activeStateBeforeConfig.state, 'active');
+  const callStateBeforeConfig = {
+    state: activeStateBeforeConfig.state,
+    local_listening: activeStateBeforeConfig.local_listening,
+    microphone_muted: activeStateBeforeConfig.microphone_muted,
+    speakers_muted: activeStateBeforeConfig.speakers_muted,
+  };
+  const syntheticConfig = (await script(settings, 'window.dotdial.readConfig()')).config;
+  const liveWakeConfig = JSON.parse(JSON.stringify(syntheticConfig));
+  liveWakeConfig.wakeWord.phrase = 'Computer';
+  fs.writeFileSync(demoConfig, JSON.stringify(liveWakeConfig, null, 2));
+  const wakeChangedDuringCall = await until(async () => {
+    const current = await queryRuntimeState();
+    return current.wake_phrase === 'Computer' && current.config_pending === false ? current : null;
+  }, 'wake_phrase_not_applied_during_call');
+  assert.equal(wakeChangedDuringCall.state, 'active');
+  assert.deepEqual({
+    state: wakeChangedDuringCall.state,
+    local_listening: wakeChangedDuringCall.local_listening,
+    microphone_muted: wakeChangedDuringCall.microphone_muted,
+    speakers_muted: wakeChangedDuringCall.speakers_muted,
+  }, callStateBeforeConfig);
+  assert.equal(panel.isVisible(), true, 'panel_hidden_after_live_wake_config');
+  fs.writeFileSync(demoConfig, JSON.stringify(syntheticConfig, null, 2));
+  const wakeRestoredDuringCall = await until(async () => {
+    const current = await queryRuntimeState();
+    return current.wake_phrase === syntheticConfig.wakeWord.phrase && current.config_pending === false ? current : null;
+  }, 'wake_phrase_not_restored_during_call');
+  assert.equal(wakeRestoredDuringCall.state, 'active');
+  assert.equal(panel.isVisible(), true, 'panel_hidden_after_synthetic_config_restore');
   assert.deepEqual(panel.getSize(), [122, 42]);
   assert.equal(panel.isFocusable(), false);
   assert.equal(await script(panel, 'document.querySelectorAll(".panel-control").length'), 3);
@@ -248,7 +315,7 @@ void (async () => {
   await until(() => previewPlayers.length > playersBeforeClose, 'closing_preview_missing');
   settings.close();
   await until(() => previewPlayers.at(-1).killed, 'settings_close_left_sound_playing');
-  console.log(JSON.stringify({ result: 'passed', mode: 'synthetic_preview', checks: ['ui_config_write', 'external_json_reload', 'conflict_protection', 'invalid_json_recovery', 'connection_sound_save', 'custom_file_choose', 'preview_and_stop', 'custom_decode_and_preview', 'cancel_file_choose', 'controls', 'panel_lifecycle', 'transparent_corners', 'three_controls', 'speaker_badge', 'native_click_and_drag', 'context_menu_everywhere', 'replay_stop'], screenshots: output, comparisons }));
+  console.log(JSON.stringify({ result: 'passed', mode: 'synthetic_preview', checks: ['settings_geometry_and_work_area', 'pending_call_settings_copy', 'ui_config_write', 'external_json_reload', 'conflict_protection', 'invalid_json_recovery', 'connection_sound_save', 'custom_file_choose', 'preview_and_stop', 'custom_decode_and_preview', 'cancel_file_choose', 'wake_phrase_live_during_active_call', 'controls', 'panel_lifecycle', 'transparent_corners', 'three_controls', 'speaker_badge', 'native_click_and_drag', 'context_menu_everywhere', 'replay_stop'], screenshots: output, comparisons }));
   app.quit();
 })().catch(error => { console.error('UI_SMOKE_FAILED', error.message); app.exit(1); });
 setTimeout(() => { console.error('UI_SMOKE_TIMEOUT'); app.exit(2); }, 55000).unref();

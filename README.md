@@ -83,7 +83,7 @@ sudo apt install python3 python3-venv libportaudio2
 python3 scripts/setup-wake.py
 ```
 
-Enable wake word in Settings and select a supported English phrase, for example **Hey Dot**. During a call, the listener stays active: the phrase enables a muted microphone or speakers and gives a short confirmation cue. If both are already enabled, it leaves the call unchanged. Speech on an enabled microphone continues to the dot normally. Setup stores the model and its virtual environment in DotDial's user data directory, verifies the model archive's SHA-256, and preserves the upstream model files. See [Third-party notices](THIRD_PARTY_NOTICES.md).
+Enable wake word in Settings and select a supported English phrase, for example **Hey Dot**. Phrase, sensitivity and enable/disable changes take effect immediately, including during a call. During a call, the listener stays active: the phrase enables a muted microphone or speakers and gives a short confirmation cue. If both are already enabled, it leaves the call unchanged. Speech on an enabled microphone continues to the dot normally. Setup stores the model and its virtual environment in DotDial's user data directory, verifies the model archive's SHA-256, and preserves the upstream model files. See [Third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Configuration and local data
 

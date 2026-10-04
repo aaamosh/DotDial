@@ -17,6 +17,8 @@ async function boot() {
   const { getPaths, loadConfigSnapshot, saveConfig, validateConfig } = require('./config.cjs');
   const { attachClient } = require('./ipc_client.cjs');
   const { createBrowserIdentity } = require('./browser_identity.cjs');
+  const { createWebRecovery } = require('./web_recovery.cjs');
+  const { selectLiveConfig } = require('./live_config.cjs');
   const { installQuitBarrier } = require('./quit_guard.cjs');
   const option = name => process.argv.find(v => v.startsWith(`--${name}=`))?.slice(name.length + 3);
   const demo = process.argv.includes('--demo');
@@ -48,7 +50,9 @@ async function boot() {
   let soundPreview = false, previewGeneration = 0;
   let loginWindow, pageReady, pageFailed = false, identityEpoch = 0, shuttingDown = false;
   let configPending = false, configError = null, wakeEpoch = 0, hotkeyAvailable = true, applyingConfig = false;
+  let configReloadRequested = false;
   let demoCallTimer, currentThreadId = null, callPreparing = false;
+  let webVerifying = false, webActionRequired = false;
   let lastState = { state: 'ready', local_listening: false };
   const journalFile = path.join(paths.stateDir, 'call-journal.json');
   const safeCode = error => /^[a-z0-9_]{1,100}$/i.test(error?.code || '') ? error.code : 'operation_failed';
@@ -67,9 +71,19 @@ async function boot() {
     return { ...lastState, ...(callPreparing && lastState.state === 'ready' ? { state: 'starting' } : {}), ...mailbox?.snapshot(), ...(mailbox?.playing ? { microphone_changing: true } : {}),
       demo, configured: !!config.dot.url, config_hash: snapshot.hash, config_pending: configPending, config_error: configError,
       wake_status: wakeManager?.status || 'disabled', wake_listening: wakeManager?.status === 'listening', wake_error: wakeManager?.error || null,
+      wake_phrase: wakeManager?.config?.phrase || config.wakeWord.phrase,
+      web_verifying: webVerifying, web_action_required: webActionRequired,
       hotkey_available: hotkeyAvailable };
   }
   function publish(value = lastState) {
+    if (lastState.state === 'active' && value.state !== 'active' && lastState.media) {
+      // Preserve bounded transport counters before the next attempt resets them.
+      // No addresses, call identifiers, speech or credentials are included.
+      writeJson(path.join(paths.stateDir, 'last-call-diagnostics.json'), {
+        ended_at: new Date().toISOString(), media: lastState.media,
+        timings_ms: lastState.timings_ms, last_error: value.last_error || null,
+      });
+    }
     lastState = value;
     const current = state();
     desktop?.update(current);
@@ -117,10 +131,29 @@ async function boot() {
     loginWindow.on('close', e => { if (!shuttingDown) { e.preventDefault(); loginWindow.hide(); } });
     return loadLoginPage();
   }
-  async function identity() {
+  async function waitForWebPage() {
     await openLogin(false);
-    if (/Just a moment/i.test(loginWindow.webContents.getTitle())) loginWindow.show();
     for (let i = 0; i < 160 && /Just a moment/i.test(loginWindow.webContents.getTitle()); i++) await new Promise(r => setTimeout(r, 250));
+    if (/Just a moment/i.test(loginWindow.webContents.getTitle())) throw failure('web_verification_required');
+  }
+  const webRecovery = createWebRecovery(async () => {
+    webVerifying = true; publish();
+    try {
+      await openLogin(false);
+      await loadLoginPage();
+      await waitForWebPage();
+    } finally { webVerifying = false; publish(); }
+  });
+  function requireWebAction(error) {
+    if (['web_verification_required', 'login_required', 'login_refresh_required'].includes(error?.code)) {
+      webActionRequired = true;
+      if (loginWindow && !loginWindow.isDestroyed()) loginWindow.show();
+      publish();
+    }
+    throw error;
+  }
+  async function readIdentity() {
+    await waitForWebPage();
     const result = await inIdentityWorld(`
       try {
         const s = await auth.get();
@@ -131,11 +164,19 @@ async function boot() {
     if (result.error) throw Object.assign(failure(result.error), { status: result.status });
     return result.identity;
   }
+  async function identity() {
+    try {
+      const result = await webRecovery.identity(readIdentity);
+      webActionRequired = false;
+      return result;
+    } catch (error) { return requireWebAction(error); }
+  }
   async function fetchOpenAI(url, init = {}) {
     const target = new URL(url);
     if (target.origin !== 'https://chatgpt.com' || !target.pathname.startsWith('/backend-api/tbo/')) throw failure('unexpected_origin');
     const q = { path: target.pathname, method: init.method, body: init.body, accountId: init.headers['ChatGPT-Account-ID'] };
-    const r = await inIdentityWorld(`
+    const send = async () => {
+      const r = await inIdentityWorld(`
       const q = ${JSON.stringify(q)};
       const s = await auth.get();
       if (s.accountId !== q.accountId) throw Error('account_mismatch');
@@ -144,7 +185,17 @@ async function boot() {
       const r = await fetch(q.path, { method: q.method, headers, body: q.body, credentials: 'include', redirect: 'error', signal: AbortSignal.timeout(20000) });
       return { status: r.status, body: await r.text(), headers: Object.fromEntries(['location','content-type','cf-mitigated'].map(k => [k,r.headers.get(k)]).filter(x => x[1] !== null)) };
     `);
-    return new Response([204, 205, 304].includes(r.status) ? null : r.body, { status: r.status, headers: r.headers });
+      return new Response([204, 205, 304].includes(r.status) ? null : r.body, { status: r.status, headers: r.headers });
+    };
+    try {
+      const response = await webRecovery.request(send, () =>
+        !target.pathname.endsWith('/voice/calls') || (!shuttingDown && !controller?.cancelled));
+      if (response.status === 403 && response.headers.get('cf-mitigated') === 'challenge') {
+        webActionRequired = true;
+        loginWindow?.show(); publish();
+      } else if (response.ok) webActionRequired = false;
+      return response;
+    } catch (error) { return requireWebAction(error); }
   }
   async function saveSettings(value, expectedHash) {
     const previous = loadConfigSnapshot(paths.configFile);
@@ -173,13 +224,24 @@ async function boot() {
     } finally { if (generation === previewGeneration) soundPreview = false; }
   }
   async function applyDiskConfig() {
-    if (shuttingDown || applyingConfig) return;
+    if (shuttingDown) return;
+    if (applyingConfig) { configReloadRequested = true; return; }
     let next;
     try { next = loadConfigSnapshot(paths.configFile); }
     catch (e) { configPending = false; configError = safeCode(e); publish(); return; }
-    if (busy() || mailbox?.playing) { configPending = true; return; }
-    configPending = false; configError = null; applyingConfig = true;
+    configError = null; applyingConfig = true;
     try {
+      const update = selectLiveConfig(config, next.config, busy() || mailbox?.playing);
+      configPending = update.pending;
+      // Publish the saved revision even if call-sensitive settings are pending.
+      // A duplicate file-watch event must not invent pending changes.
+      snapshot = next;
+      wakeManager?.configure(update.config.wakeWord);
+      if (busy() || mailbox?.playing) {
+        config = update.config;
+        publish();
+        return;
+      }
       const old = config; config = next.config; snapshot = next;
       if (mailbox) mailbox.limitBytes = config.recording.maxMegabytes * 1024 * 1024;
       if (JSON.stringify(old.audio) !== JSON.stringify(config.audio)) {
@@ -202,7 +264,13 @@ async function boot() {
       }
       wakeManager?.configure(config.wakeWord);
       desktop?.update(state());
-    } finally { applyingConfig = false; }
+    } finally {
+      applyingConfig = false;
+      if (configReloadRequested) {
+        configReloadRequested = false;
+        void applyDiskConfig().catch(error => { configError = safeCode(error); publish(); });
+      }
+    }
   }
   function configureAutostart() {
     const autostart = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'autostart', 'dotdial.desktop');
@@ -237,7 +305,11 @@ async function boot() {
       if (name.startsWith('SPEAKERS_')) publish({ ...lastState, speakers_muted: name === 'SPEAKERS_MUTE' });
       return { status: 'preview' };
     }
-    if (name === 'LOGIN') { await openLogin(true); return { status: 'login_opened' }; }
+    if (name === 'LOGIN') {
+      await openLogin(true);
+      if (webActionRequired) await loadLoginPage();
+      return { status: 'login_opened' };
+    }
     if (name === 'WAKE_SETUP') return wakeManager.install();
     if (name === 'WAKE') {
       if (!config.dot.url) { desktop.openSettings(); return { status: 'dot_not_configured' }; }

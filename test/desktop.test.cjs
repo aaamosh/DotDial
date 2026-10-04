@@ -8,7 +8,7 @@ const os = require('node:os');
 const zlib = require('node:zlib');
 const EventEmitter = require('node:events');
 const Module = require('node:module');
-const { presentState, createTrayPng, readPanelPosition, savePanelPosition, clampPanelPosition, IPC } = require('../src/desktop.cjs');
+const { presentState, createTrayPng, readPanelPosition, savePanelPosition, clampPanelPosition, settingsWindowGeometry, clampSettingsBounds, IPC } = require('../src/desktop.cjs');
 const { installQuitBarrier } = require('../src/quit_guard.cjs');
 
 function crc32(bytes) {
@@ -54,6 +54,34 @@ test('tray tooltip and missed badge count are bounded and clear', () => {
   assert.equal(presentState({ state: 'ready', missed_count: 1000 }).missedCount, 999);
 });
 
+test('tray shows web sign-in action and verification status with call-state priority', () => {
+  const action = presentState({ state: 'ready', web_action_required: true });
+  assert.equal(action.tone, 'warning');
+  assert.equal(action.tooltip, 'DotDial · Verify ChatGPT sign-in');
+  const verifying = presentState({ state: 'ready', web_verifying: true });
+  assert.equal(verifying.tone, 'connecting');
+  assert.equal(verifying.tooltip, 'DotDial · Checking ChatGPT access');
+  assert.equal(presentState({ state: 'active', web_action_required: true }).tooltip, 'DotDial · In call');
+  assert.equal(presentState({ state: 'starting', web_verifying: true }).tooltip, 'DotDial · Checking ChatGPT access');
+});
+
+test('settings window targets a compact centered size and remains inside small work areas', () => {
+  assert.deepEqual(settingsWindowGeometry({ x: 100, y: 40, width: 1440, height: 900 }), {
+    x: 480, y: 236, width: 680, height: 507, minWidth: 520, minHeight: 360,
+  });
+  assert.deepEqual(settingsWindowGeometry({ x: 0, y: 0, width: 600, height: 400 }), {
+    x: 0, y: 0, width: 600, height: 400, minWidth: 520, minHeight: 360,
+  });
+  const small = settingsWindowGeometry({ x: 20, y: 30, width: 430, height: 320 });
+  assert.deepEqual(small, { x: 20, y: 30, width: 430, height: 320, minWidth: 430, minHeight: 320 });
+  assert.deepEqual(clampSettingsBounds({ x: 1000, y: -30, width: 800, height: 600 }, { x: -1280, y: 0, width: 1280, height: 720 }), {
+    x: -800, y: 0, width: 800, height: 600,
+  });
+  assert.deepEqual(clampSettingsBounds({ x: 1000, y: -30, width: 1800, height: 900 }, { x: -1280, y: 0, width: 1280, height: 720 }), {
+    x: -1280, y: 0, width: 1280, height: 720,
+  });
+});
+
 test('tray asset is a valid transparent 64px PNG and changes for status and missed count', () => {
   const idle = createTrayPng('idle', 0);
   const active = createTrayPng('call', 0);
@@ -76,6 +104,7 @@ test('desktop pages keep Electron isolated and restrict their renderer surface',
   assert.match(desktop, /nodeIntegration:\s*false/);
   assert.match(desktop, /sandbox:\s*true/);
   assert.match(desktop, /trustedSender/);
+  assert.match(desktop, /snapshot\.web_action_required\s*===\s*true\s*\?\s*'Verify ChatGPT sign-in'/);
   assert.match(preload, /contextBridge\.exposeInMainWorld/);
   assert.doesNotMatch(preload, /exposeInMainWorld\(\s*['"](?:electron|ipcRenderer)['"]/);
   assert.match(html, /default-src 'self'/);
