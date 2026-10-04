@@ -24,11 +24,11 @@ Defaults follow XDG Base Directory paths:
 | Purpose | Path |
 | --- | --- |
 | Config | `~/.config/dotdial/config.json` |
-| Logs and call state | `~/.local/state/dotdial/` |
+| Logs, call and window state | `~/.local/state/dotdial/` |
 | Browser profile, recordings, wake model | `~/.local/share/dotdial/` |
 | Cache | `~/.cache/dotdial/` |
 
-DotDial writes technical call state and diagnostics locally. The configuration and log files should not contain passwords or access tokens. Before attaching diagnostics to an issue, review them and remove personal paths or account details. Never attach recordings, browser profile data, cookies, or tokens.
+DotDial writes technical call state, the floating panel position, and diagnostics locally. The configuration and log files should not contain passwords or access tokens. Before attaching diagnostics to an issue, review them and remove personal paths or account details. Never attach recordings, browser profile data, cookies, or tokens.
 
 Uninstalling the Debian package or deleting the source checkout does not erase the data directories. To erase local data, first save any replies you want to keep, close DotDial, then remove the DotDial subdirectory from each XDG config, state, data, and cache home. Removing the data directory also deletes the persistent browser profile and all saved recordings.
 

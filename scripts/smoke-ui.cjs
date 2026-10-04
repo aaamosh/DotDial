@@ -1,5 +1,5 @@
 'use strict';
-// Run with Electron under an isolated display. No account, network or microphone.
+// Run with Electron and xdotool under an isolated X11 display. No account, network or microphone.
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');

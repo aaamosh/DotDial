@@ -4,10 +4,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const zlib = require('node:zlib');
 const EventEmitter = require('node:events');
 const Module = require('node:module');
-const { presentState, createTrayPng, IPC } = require('../src/desktop.cjs');
+const { presentState, createTrayPng, readPanelPosition, savePanelPosition, clampPanelPosition, IPC } = require('../src/desktop.cjs');
 const { installQuitBarrier } = require('../src/quit_guard.cjs');
 
 function crc32(bytes) {
@@ -166,4 +167,34 @@ test('Quit menu waits for shutdown and ignores repeated quit requests', async ()
     desktop?.dispose();
     Module._load = originalLoad;
   }
+});
+
+
+test('panel position survives a fresh read and incomplete state falls back safely', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-position-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'panel-position.json');
+  assert.equal(readPanelPosition(file), null);
+  assert.equal(savePanelPosition(file, { x: -480, y: 312 }), true);
+  assert.deepEqual(readPanelPosition(file), { x: -480, y: 312 });
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.deepEqual(fs.readdirSync(dir), ['panel-position.json']);
+  assert.equal(savePanelPosition(file, { x: NaN, y: 3 }), false);
+  assert.deepEqual(readPanelPosition(file), { x: -480, y: 312 });
+  for (const invalid of ['{', 'null', '{"version":2,"x":1,"y":2}', '{"version":1,"x":"1","y":2}', ' '.repeat(1025)]) {
+    fs.writeFileSync(file, invalid);
+    assert.equal(readPanelPosition(file), null);
+  }
+  assert.equal(savePanelPosition(path.join(dir, 'absent', 'panel.json'), { x: 1, y: 2 }), false);
+});
+
+test('restored panel stays inside the current monitor work area', () => {
+  const size = { width: 122, height: 42 };
+  const primary = { x: 0, y: 24, width: 1920, height: 1016 };
+  assert.deepEqual(clampPanelPosition({ x: 280, y: 250 }, primary, size), { x: 280, y: 250 });
+  assert.deepEqual(clampPanelPosition({ x: 4000, y: -500 }, primary, size), { x: 1798, y: 24 });
+  const leftMonitor = { x: -1280, y: 0, width: 1280, height: 720 };
+  assert.deepEqual(clampPanelPosition({ x: -640, y: 500 }, leftMonitor, size), { x: -640, y: 500 });
+  assert.deepEqual(clampPanelPosition({ x: -2000, y: 900 }, leftMonitor, size), { x: -1280, y: 678 });
+  assert.deepEqual(clampPanelPosition({ x: -50, y: -50 }, { x: 0, y: 0, width: 100, height: 30 }, size), { x: 0, y: 0 });
 });

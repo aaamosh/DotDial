@@ -134,6 +134,38 @@ function safeErrorCode(error) {
   return code;
 }
 
+function validPanelPosition(value) {
+  return value && Number.isInteger(value.x) && Number.isInteger(value.y) &&
+    Math.abs(value.x) <= 1000000 && Math.abs(value.y) <= 1000000;
+}
+
+function readPanelPosition(file) {
+  if (!file) return null;
+  try {
+    if (fs.statSync(file).size > 1024) return null;
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return value.version === 1 && validPanelPosition(value) ? { x: value.x, y: value.y } : null;
+  } catch { return null; }
+}
+
+function savePanelPosition(file, position) {
+  if (!file || !validPanelPosition(position)) return false;
+  const temporary = `${file}.${require('node:crypto').randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify({ version: 1, x: position.x, y: position.y }) + '\n', { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, file);
+    return true;
+  } catch { return false; }
+  finally { try { fs.unlinkSync(temporary); } catch {} }
+}
+
+function clampPanelPosition(position, area, size) {
+  return {
+    x: Math.max(area.x, Math.min(area.x + Math.max(0, area.width - size.width), position.x)),
+    y: Math.max(area.y, Math.min(area.y + Math.max(0, area.height - size.height), position.y)),
+  };
+}
+
 function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}, getAudioDevices } = {}) {
   const electron = require('electron');
   const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, dialog } = electron;
@@ -143,6 +175,23 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   const dispatch = typeof command === 'function' ? command : async () => ({ status: 'unavailable' });
   let tray = null, panel = null, settings = null, snapshot = safeState(stateProvider());
   let configCache = jsonClone(configProvider()), disposed = false;
+  const positionFile = paths.stateDir ? path.join(paths.stateDir, 'panel-position.json') : null;
+  let positionTimer = null, savedPosition = null;
+  const persistPanelPosition = () => {
+    clearTimeout(positionTimer); positionTimer = null;
+    if (!panel || panel.isDestroyed()) return;
+    const [x, y] = panel.getPosition();
+    if (savedPosition?.x === x && savedPosition?.y === y) return;
+    if (savePanelPosition(positionFile, { x, y })) savedPosition = { x, y };
+  };
+  const keepPanelVisible = () => {
+    if (!panel || panel.isDestroyed()) return;
+    const bounds = panel.getBounds();
+    const position = clampPanelPosition(bounds, screen.getDisplayMatching(bounds).workArea, bounds);
+    if (position.x !== bounds.x || position.y !== bounds.y) panel.setPosition(position.x, position.y, false);
+  };
+  screen?.on?.('display-removed', keepPanelVisible);
+  screen?.on?.('display-metrics-changed', keepPanelVisible);
   const handlers = [];
   const windows = () => [panel, settings].filter(Boolean);
   const callCommand = async (name, payload) => {
@@ -199,7 +248,17 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
     });
     panel.setAlwaysOnTop(true, 'floating');
     const display = screen.getPrimaryDisplay();
-    panel.setPosition(display.workArea.x + Math.max(0, display.workArea.width - 142), display.workArea.y + Math.max(0, display.workArea.height - 114));
+    savedPosition = readPanelPosition(positionFile);
+    const requested = savedPosition || { x: display.workArea.x + Math.max(0, display.workArea.width - 142), y: display.workArea.y + Math.max(0, display.workArea.height - 114) };
+    const bounds = { ...requested, width: 122, height: 42 };
+    const position = clampPanelPosition(requested, screen.getDisplayMatching(bounds).workArea, bounds);
+    panel.setPosition(position.x, position.y);
+    panel.on('move', () => {
+      clearTimeout(positionTimer);
+      positionTimer = setTimeout(persistPanelPosition, 150);
+      positionTimer.unref();
+    });
+    panel.on('close', persistPanelPosition);
     loadWindow(panel, 'panel');
     panel.on('closed', () => { panel = null; });
     return panel;
@@ -219,7 +278,7 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
     if (panel && !panel.isDestroyed() && !panel.isVisible()) panel.showInactive();
     if (panel && !panel.isDestroyed()) send(panel, IPC.state, snapshot);
   };
-  const hidePanel = () => { if (panel && !panel.isDestroyed()) panel.hide(); };
+  const hidePanel = () => { if (panel && !panel.isDestroyed()) { persistPanelPosition(); panel.hide(); } };
   const panelAllowed = () => configCache?.config?.appearance?.showPanel !== false;
   const iconFor = state => {
     const view = presentState(state);
@@ -310,9 +369,8 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
     const bounds = { x: x + Math.round(payload.dx), y: y + Math.round(payload.dy), width, height };
     const display = screen.getDisplayMatching(bounds);
     const area = display.workArea;
-    const nx = Math.max(area.x, Math.min(area.x + area.width - bounds.width, bounds.x));
-    const ny = Math.max(area.y, Math.min(area.y + area.height - bounds.height, bounds.y));
-    panel.setPosition(nx, ny, false);
+    const position = clampPanelPosition(bounds, area, bounds);
+    panel.setPosition(position.x, position.y, false);
     return { status: 'moved' };
   });
 
@@ -347,6 +405,9 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
     dispose() {
       if (disposed) return;
       disposed = true;
+      persistPanelPosition();
+      screen?.removeListener?.('display-removed', keepPanelVisible);
+      screen?.removeListener?.('display-metrics-changed', keepPanelVisible);
       for (const channel of handlers) ipcMain.removeHandler(channel);
       handlers.length = 0;
       try { tray?.destroy(); } catch {}
@@ -358,4 +419,4 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   return api;
 }
 
-module.exports = { createDesktop, presentState, createTrayPng, IPC };
+module.exports = { createDesktop, presentState, createTrayPng, readPanelPosition, savePanelPosition, clampPanelPosition, IPC };

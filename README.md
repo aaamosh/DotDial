@@ -91,9 +91,11 @@ DotDial validates a single versioned JSON configuration file at `${XDG_CONFIG_HO
 | Data | Default location |
 | --- | --- |
 | Settings | `~/.config/dotdial/config.json` |
-| Logs and call state | `~/.local/state/dotdial/` |
+| Logs, call and window state | `~/.local/state/dotdial/` |
 | Browser sign-in profile, recordings, wake model | `~/.local/share/dotdial/` |
 | Cache | `~/.cache/dotdial/` |
+
+The floating panel remembers its position across restarts. If a monitor is disconnected or its resolution changes, the panel stays within the available screen area. Its last position is local runtime state in `panel-position.json` under the state directory.
 
 XDG environment variables relocate these directories. Recordings are local WAV files. They remain after the app closes and after package removal; delete user data only when you also want to remove the saved sign-in profile and any unplayed replies.
 
