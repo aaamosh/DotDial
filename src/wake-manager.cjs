@@ -23,6 +23,11 @@ class WakeManager {
     if (paused) { this.restartAfterStop = false; void this.stop(); }
     else this.start();
   }
+  setCallState(state) {
+    // An active call can be reactivated by voice, including during local replay.
+    // Idle replay stays isolated so a recorded wake phrase cannot start a call.
+    this.setPaused(state.missed_playing === true && state.state !== 'active');
+  }
   async pauseAndWait() { this.paused = true; this.restartAfterStop = false; await this.stop(); }
   runtime() {
     const local = path.join(this.paths.dataDir, 'wake-venv', 'bin', 'python');

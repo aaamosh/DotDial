@@ -55,7 +55,7 @@ The desktop process creates the private agent socket at `$XDG_RUNTIME_DIR/dotdia
 | CLI command | Agent verb | Effect |
 | --- | --- | --- |
 | `status` | `STATUS` | Read current local call state |
-| `call` | `WAKE` | Start a call using the configured initial microphone state |
+| `call` | `WAKE` | Start a call using the configured initial microphone state; during an active call, enable muted microphone and speakers |
 | `hangup` | `STOP` | Stop the call |
 | `mute` / `unmute` | `MUTE` / `UNMUTE` | Mute or unmute the microphone |
 | `speakers-mute` / `speakers-unmute` | `SPEAKERS_MUTE` / `SPEAKERS_UNMUTE` | Mute or unmute incoming voice |

@@ -62,7 +62,7 @@ const COPY = {
     devicesFound: 'Device list updated.', devicesEmpty: 'No named devices found. System default is still available.',
     devicesUnavailable: 'Could not list devices. System default remains selected.', scanPermission: 'Scanning lists device names; it does not start the microphone.',
     wakeSetupStarted: 'Checking local wake-word support…', wakeSetupDone: 'Wake-word support is ready.', wakeSetupFailed: 'Wake-word setup did not complete.',
-    wakeStatusListening: 'Wake word is listening locally.', wakeStatusPaused: 'Wake-word listening pauses during a call.', wakeStatusRequired: 'Install wake-word support to start listening.', wakeStatusError: 'Wake-word service needs attention.',
+    wakeStatusListening: 'Wake word is listening locally.', wakeStatusPaused: 'Wake-word listening is paused during idle playback.', wakeStatusRequired: 'Install wake-word support to start listening.', wakeStatusError: 'Wake-word service needs attention.',
     menuShown: 'Tray menu opened.', controlFailed: 'That control is unavailable right now.',
     clearTitle: 'Clear missed replies?', clearBody: 'This permanently deletes saved replies that have not been fully played.',
     accountOpen: 'ChatGPT sign-in opened.',

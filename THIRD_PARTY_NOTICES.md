@@ -18,4 +18,6 @@ The wake-word model and Python environment are not included in the default appli
 
 The source tree does not vendor Electron, Chromium, or the optional model. When preparing a release, compare this file with `package-lock.json`, the bundled Electron notice files, and the model archive actually used by the setup script.
 
-The three telephone-style call cues in `src/sounds/` are original generated tones distributed under the project MIT license. They contain no third-party sound recordings.
+`src/sounds/calling.wav` is a bit-for-bit copy of the full recorded 14.4 kbps modem negotiation `14400.WAV` by Ektoras Karagiannis (1997). `connected.wav` is a 0.30-second excerpt from the same recording (approximately 4.75–5.05 seconds). Internet Archive's item metadata declares the source CC0 1.0: [source item](https://archive.org/details/14400_201912), [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). `activated.wav` preserves the former project connected cue, and `ended.wav` remains an original generated tone; both are distributed under the project MIT license.
+
+The original [WAV download](https://archive.org/download/14400_201912/14400.WAV) has SHA-256 `0359ba1636107f1ee5cef6c87c2293d90391dad3580f3a51834a37ac44ba14ce`. It contains mono 16-bit PCM at 11,025 Hz. The connected excerpt copies samples 52,370 through 55,675 without gain changes or resampling.

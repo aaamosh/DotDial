@@ -73,7 +73,7 @@ async function boot() {
     const current = state();
     desktop?.update(current);
     writeJson(path.join(paths.stateDir, 'status.json'), { updated_at: new Date().toISOString(), ...current });
-    wakeManager?.setPaused(current.state !== 'ready' || current.missed_playing === true);
+    wakeManager?.setCallState(current);
     if (current.state === 'ready' && configPending && !applyingConfig) void applyDiskConfig().catch(e => { configPending = false; configError = safeCode(e); desktop?.update(state()); });
   }
   function inIdentityWorld(code) {
@@ -219,18 +219,17 @@ async function boot() {
     if (name === 'WAKE_SETUP') return wakeManager.install();
     if (name === 'WAKE') {
       if (!config.dot.url) { desktop.openSettings(); return { status: 'dot_not_configured' }; }
-      if (callPreparing || ['starting', 'active', 'stopping'].includes(controller.state)) return { status: state().state };
+      if (controller.state === 'active' && !callPreparing) return audioControls.activate(() => sounds.play('activated'));
+      if (callPreparing || ['starting', 'stopping'].includes(controller.state)) return { status: state().state };
       const ticket = ++wakeEpoch; callPreparing = true; publish();
       try {
         if (mailbox.playing) await mailbox.stop();
-        if (ticket !== wakeEpoch || shuttingDown) return { status: 'cancelled' };
-        await wakeManager.pauseAndWait();
         if (ticket !== wakeEpoch || shuttingDown) return { status: 'cancelled' };
         mailbox.setMuted(config.audio.speakersInitiallyMuted);
         return controller.wake({ microphone: !config.audio.microphoneInitiallyMuted, maxSeconds: config.call.maxMinutes * 60 });
       } finally { if (ticket === wakeEpoch) callPreparing = false; publish(); }
     }
-    if (name === 'STOP') { wakeEpoch++; callPreparing = false; await mailbox.stop(); void controller.stop(); return { status: 'accepted_stop' }; }
+    if (name === 'STOP') { wakeEpoch++; callPreparing = false; audioControls.cancelActivation(); await mailbox.stop(); void controller.stop(); return { status: 'accepted_stop' }; }
     if (name === 'MUTE' || name === 'UNMUTE') return audioControls.microphone(name === 'UNMUTE');
     if (name === 'SPEAKERS_MUTE' || name === 'SPEAKERS_UNMUTE') return audioControls.speakers(name === 'SPEAKERS_MUTE');
     if (name === 'MISSED_PLAY') return audioControls.play();

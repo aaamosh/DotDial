@@ -15,7 +15,7 @@ DotDial has no analytics or telemetry. Normal use still contacts ChatGPT because
 - When speakers are muted and local recording is enabled, incoming voice is saved as WAV files under `${XDG_DATA_HOME:-~/.local/share}/dotdial/recordings`. Recording does not create a transcript and is not separately uploaded by DotDial.
 - Saved replies play oldest first. A clip is deleted only after full playback. Stopping or interrupting playback keeps the clip for another attempt. Unplayed files remain on disk until played or removed by the user.
 - The configured total storage limit defaults to 200 MiB. Keep the data directory private because it may contain spoken content.
-- The optional wake-word recognizer runs locally after its model is installed. The model installer downloads dependencies and the model only when you explicitly run it. Wake word is off by default.
+- The optional wake-word recognizer runs locally after its model is installed. When enabled, it continues using the microphone locally during calls, including while transmission to the dot is muted. Recognizing the phrase can unmute the call microphone and speakers; a short cue confirms activation. The model installer downloads dependencies and the model only when you explicitly run it. Wake word is off by default.
 
 ## Files and retention
 

@@ -297,7 +297,7 @@ async function main() {
     for (const required of [runtime, sandbox, appMain, cli]) {
       if (!fs.existsSync(required)) throw new Error(`Packaged file is missing: ${path.relative(bundleDir, required)}`);
     }
-    for (const sound of ['calling.wav', 'connected.wav', 'ended.wav']) {
+    for (const sound of ['calling.wav', 'connected.wav', 'activated.wav', 'ended.wav']) {
       if (!fs.statSync(path.join(soundDir, sound)).isFile()) throw new Error(`Packaged call sound is missing: ${sound}`);
     }
 

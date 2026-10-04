@@ -29,6 +29,7 @@ These screenshots are from the local synthetic demo. They do not show a live cal
 - Stores incoming voice locally only while speaker output is muted and recording is enabled. It does not record the microphone or create a transcript.
 - Plays saved replies oldest first. A clip is deleted only after it finishes; stopping playback keeps it for another try.
 - Offers an optional offline English wake word. It is disabled by default and requires a separate model download.
+- Plays a real 1997 modem handshake while connecting. It stops as soon as the call connects; sound effects and their volume are configurable.
 - Uses your existing ChatGPT account through a sign-in window owned by DotDial. No API key is needed.
 
 The demo opens settings with simulated call states and does not sign in, contact ChatGPT, start a call, or access a microphone.
@@ -82,7 +83,7 @@ sudo apt install python3 python3-venv libportaudio2
 python3 scripts/setup-wake.py
 ```
 
-Enable wake word in Settings and select a supported English phrase, for example **Hey Dot**. Setup stores the model and its virtual environment in DotDial's user data directory, verifies the model archive's SHA-256, and preserves the upstream model files. See [Third-party notices](THIRD_PARTY_NOTICES.md).
+Enable wake word in Settings and select a supported English phrase, for example **Hey Dot**. During a call, the listener stays active: the phrase enables a muted microphone or speakers and gives a short confirmation cue. If both are already enabled, it leaves the call unchanged. Speech on an enabled microphone continues to the dot normally. Setup stores the model and its virtual environment in DotDial's user data directory, verifies the model archive's SHA-256, and preserves the upstream model files. See [Third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Configuration and local data
 

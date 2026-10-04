@@ -170,3 +170,24 @@ test('quit during the listener shutdown window prevents a late installer spawn',
   assert.equal(f.children.length, 1);
   assert.equal(f.manager.installer, null);
 });
+
+test('the same local listener stays alive through a call and all mute combinations', async t => {
+  const f = fixture(t); f.manager.configure(enabledConfig);
+  await until(() => f.children.length === 1);
+  const listener = f.children[0]; listener.ready();
+  for (const state of ['starting', 'active', 'stopping', 'ready']) {
+    for (const microphone_muted of [true, false]) for (const speakers_muted of [true, false]) {
+      f.manager.setCallState({ state, microphone_muted, speakers_muted });
+      assert.equal(f.manager.paused, false);
+      assert.equal(f.manager.child, listener);
+    }
+  }
+  f.manager.setCallState({ state: 'active', missed_playing: true });
+  listener.wake();
+  assert.deepEqual(f.wakes, ['wake']);
+  assert.deepEqual(listener.killSignals, []);
+  f.manager.setCallState({ state: 'ready', missed_playing: true });
+  listener.wake();
+  assert.deepEqual(f.wakes, ['wake'], 'idle replay must not trigger a new call');
+  await f.manager.stopping;
+});

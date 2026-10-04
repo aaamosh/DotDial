@@ -1,16 +1,20 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+export const PLAYBACK_TIMEOUT_MS = Object.freeze({ calling: 25_000, default: 6_000 });
+
 export const SOUND_FILES = {
   calling: fileURLToPath(new URL('./sounds/calling.wav', import.meta.url)),
   connected: fileURLToPath(new URL('./sounds/connected.wav', import.meta.url)),
+  activated: fileURLToPath(new URL('./sounds/activated.wav', import.meta.url)),
   ended: fileURLToPath(new URL('./sounds/ended.wav', import.meta.url)),
 };
 
 export class CallSounds {
-  constructor({ spawnPlayer = spawn, repeatMs = 1400, volume = 0.55, enabled = true } = {}) {
+  constructor({ spawnPlayer = spawn, repeatMs = 1400, volume = 0.55, enabled = true, playbackTimeoutMs = PLAYBACK_TIMEOUT_MS } = {}) {
     this.spawnPlayer = spawnPlayer;
     this.repeatMs = repeatMs; this.volume = volume; this.enabled = enabled;
+    this.playbackTimeoutMs = playbackTimeoutMs;
     this.generation = 0;
   }
 
@@ -40,7 +44,7 @@ export class CallSounds {
         resolve();
       };
       this.finish = done;
-      const timeout = setTimeout(() => { child.kill(); done(); }, 6000);
+      const timeout = setTimeout(() => { child.kill(); done(); }, this.playbackTimeoutMs[name] ?? this.playbackTimeoutMs.default);
       child.once('error', done);
       child.once('exit', done);
     });
