@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CallController } from "./call_controller.mjs";
+import { createRequire } from 'node:module';
+const { presentState } = createRequire(import.meta.url)('./desktop.cjs');
 
 const PROFILE = "00000000-0000-4000-8000-000000000002~fixture-profile";
 const ACCOUNT = "fixture-owner-account";
@@ -153,6 +155,85 @@ test("stop during profile lookup cancels before call allocation", async () => {
   assert.equal(h.peers.length, 1);
   assert.ok(h.events.includes('peerClosed'));
   assert.equal(h.controller.state, "ready");
+  assert.equal(h.controller.snapshot().last_error, undefined);
+  assert.equal(h.controller.snapshot().start_error, undefined);
+  assert.equal(h.controller.snapshot().stage, 'ready');
+});
+
+test('hangup during create returns the listening tray after confirming the exact allocated call', async () => {
+  const creating = deferred();
+  const h = harness({ create: async s => {
+    await creating.promise;
+    s.callId = 'fixture-delayed-call';
+    return { answerSdp: 'v=0\r\nanswer' };
+  } });
+  h.controller.wake({ microphone: false });
+  await waitFor(() => h.journal.phase === 'creating', 'pending create');
+  const stopping = h.controller.stop();
+  creating.resolve();
+  await stopping;
+  const state = h.controller.snapshot();
+  assert.equal(state.state, 'ready');
+  assert.equal(state.stage, 'ready');
+  assert.equal(state.start_result, 'cancelled');
+  assert.equal(state.last_error, undefined);
+  assert.equal(state.start_error, undefined);
+  assert.equal(state.stop_result, 'confirmed');
+  assert.deepEqual(h.journal, { phase: 'closed' });
+  assert.deepEqual(h.events.filter(e => Array.isArray(e) && e[0] === 'remoteStop'), [
+    ['remoteStop', PROFILE, ACCOUNT, 'fixture-delayed-call'],
+  ]);
+  const tray = presentState({ ...state, wake_status: 'listening' });
+  assert.equal(tray.tone, 'listening');
+  assert.equal(tray.tooltip, 'DotDial · Wake word listening');
+});
+
+test('hangup during create still warns when remote closure cannot be confirmed', async () => {
+  const creating = deferred();
+  const h = harness({ create: async s => {
+    await creating.promise; s.callId = 'fixture-delayed-call';
+    return { answerSdp: 'v=0\r\nanswer' };
+  }, stop: async () => { throw Object.assign(new Error('offline'), { code: 'connection_failed' }); } });
+  h.controller.wake({ microphone: false });
+  await waitFor(() => h.journal.phase === 'creating', 'pending create');
+  const stopping = h.controller.stop(); creating.resolve(); await stopping;
+  assert.equal(h.controller.state, 'recovery_required');
+  assert.equal(h.controller.snapshot().last_error, 'remote_stop_unconfirmed');
+  assert.equal(h.journal.callId, 'fixture-delayed-call');
+  assert.equal(presentState(h.controller.snapshot()).tone, 'warning');
+});
+
+test('hangup does not hide an unknown create outcome', async () => {
+  const creating = deferred();
+  const h = harness({ create: () => creating.promise });
+  h.controller.wake({ microphone: false });
+  await waitFor(() => h.journal.phase === 'creating', 'pending create');
+  const stopping = h.controller.stop();
+  creating.reject(Object.assign(new Error('offline'), { code: 'request_outcome_unknown' }));
+  await stopping;
+  assert.equal(h.controller.state, 'recovery_required');
+  assert.equal(h.controller.snapshot().last_error, 'request_outcome_unknown');
+  assert.equal(presentState(h.controller.snapshot()).tone, 'warning');
+});
+
+test('late events from a closed peer cannot warn or stop a subsequent call', async () => {
+  const h = harness(); h.controller.wake({ microphone: false }); await h.controller.pending;
+  const closedPeer = h.peers[0];
+  await h.controller.stop();
+  closedPeer.onConnection();
+  assert.equal(h.controller.state, 'ready');
+  assert.equal(h.controller.snapshot().last_error, undefined);
+  assert.equal(presentState({ ...h.controller.snapshot(), wake_status: 'listening' }).tone, 'listening');
+  h.controller.wake({ microphone: false }); await h.controller.pending;
+  closedPeer.onConnection(); closedPeer.onEvent(null); closedPeer.onLevel(null, 1);
+  assert.equal(h.controller.state, 'active');
+  assert.equal(h.controller.snapshot().last_error, undefined);
+  assert.equal(h.controller.snapshot().event_count, 0);
+  assert.equal(h.controller.snapshot().remote_peak, 0);
+  assert.equal(presentState(h.controller.snapshot()).tone, 'call');
+  h.peers[1].onConnection(); await h.controller.stopping;
+  assert.equal(h.controller.snapshot().last_error, 'media_connection_failed');
+  assert.equal(presentState(h.controller.snapshot()).tone, 'warning');
 });
 
 test('local offer overlaps profile lookup, but cloud allocation waits for both', async () => {

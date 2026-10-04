@@ -37,11 +37,17 @@ export class CallController {
     this.report();
     this.pending = this.start(microphone, maxSeconds).catch(async err => {
       this.metrics.stage = err.stage || this.metrics.stage;
-      this.metrics.last_error = err.code || 'call_start_failed';
-      this.metrics.last_http_status = err.status || null;
-      this.metrics.api_reason = err.apiReason || null;
-      this.metrics.start_error = { stage: this.metrics.stage, code: this.metrics.last_error,
-        http_status: this.metrics.last_http_status, api_reason: this.metrics.api_reason };
+      if (this.cancelled && err.code === 'cancelled') {
+        // A requested hangup is a normal outcome, including while create is
+        // in flight. Cleanup still confirms the exact allocated call below.
+        this.metrics.start_result = 'cancelled';
+      } else {
+        this.metrics.last_error = err.code || 'call_start_failed';
+        this.metrics.last_http_status = err.status || null;
+        this.metrics.api_reason = err.apiReason || null;
+        this.metrics.start_error = { stage: this.metrics.stage, code: this.metrics.last_error,
+          http_status: this.metrics.last_http_status, api_reason: this.metrics.api_reason };
+      }
       await this.cleanup();
     }).finally(() => { this.pending = null; });
     return { status: 'accepted_wake' };
@@ -72,15 +78,19 @@ export class CallController {
     const s = this.makeSession(); this.session = s;
     if (s.timings) this.metrics.signaling_ms = s.timings;
     this.metrics.stage = 'prepare'; this.report();
+    const isCurrentSession = () => this.session === s && !this.cancelled;
     this.peer = new this.native.LiveWebRtcPeer(
-      (err) => { if (!err) this.metrics.event_count++; },
+      (err) => { if (!err && isCurrentSession()) this.metrics.event_count++; },
       (err, level) => {
-        if (!err && Number.isFinite(Number(level))) {
+        if (!err && isCurrentSession() && Number.isFinite(Number(level))) {
           this.metrics.remote_peak = Math.max(this.metrics.remote_peak, Number(level));
           if (Number(level) > .002) this.metrics.remote_audio_frames++;
         }
       },
-      () => { this.metrics.last_error = 'media_connection_failed'; void this.stop(); }
+      () => {
+        if (!isCurrentSession()) return;
+        this.metrics.last_error = 'media_connection_failed'; void this.stop();
+      }
     );
     // Local offer preparation uses generated silence, with no microphone or
     // cloud call. Overlap it with account/profile verification, then require
@@ -222,6 +232,7 @@ export class CallController {
     }
     const j = this.readJournal();
     this.state = j && j.phase !== 'closed' ? 'recovery_required' : 'ready';
+    if (this.state === 'ready' && !this.metrics.last_error) this.metrics.stage = 'ready';
     this.report();
   }
 
