@@ -11,9 +11,11 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 const SKIP_DIRS = new Set([
   '.git', '.venv', '__pycache__', 'build', 'coverage', 'dist', 'node_modules', 'work',
 ]);
-// Binary content cannot be audited as text. These exact screenshots and
-// call sound assets have been reviewed; any change requires a fresh review.
+// Binary content cannot be audited as text. These exact screenshots, launch
+// media, and call sound assets have been reviewed; changes require a fresh review.
 const REVIEWED_BINARIES = new Map([
+  ['docs/media/dotdial-social-card.png', 'e7b261fd03f053257c34f44177bd8cdc3a97ec22126b45a81d89de2bcc2d8396'],
+  ['docs/media/dotdial-preview-18s.mp4', 'a16902128a75db1e863b73ba0ab7a7f7a71d9b4efba93aafa2412da7b81381f7'],
   ['docs/images/panel.png', '31430168cd4cbac99ee08ab89c0ade7d492f16b20c0f856ad53390c58a9765ea'],
   ['docs/images/settings.png', 'edb01a28b3a48f38d3594e694db935001001fb708bcab8704b4ada6c05db397b'],
   ['docs/images/voice.png', '3cb8ee69b1ce67d236e20de90b2d0ba85812c91fe059756b36b5ae175bf4b9e2'],
