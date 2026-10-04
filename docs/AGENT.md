@@ -20,6 +20,8 @@ Set the corresponding `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME`, `XDG
 
 The `signalingProxy` applies only to the signaling path. `signalingLauncher` and `mediaLauncher` provide argv prefixes for their respective processes. Leave them empty for direct local launches. They are executable paths and argument arrays, not shell command lines: no shell expansion or variable substitution occurs. Never put credentials in launcher arguments.
 
+`audio.connectionSound` chooses `modem` (the default), `telephone`, or `custom`. For `custom`, set `audio.customSoundPath` to an absolute local MP3 or WAV path. Files may be up to 30 seconds and 10 MiB; mono and stereo are supported. The original file stays unchanged and is never uploaded. DotDial decodes it locally with its bundled Chromium runtime and keeps a temporary PCM copy in its private runtime directory. Keep the original file available: if it is removed or cannot be decoded, calling falls back to telephone tones. Preview in Voice settings reports file errors and never starts a call. `audio.soundVolume` and `audio.sounds` continue controlling call effects.
+
 ## Optional command line
 
 For a source checkout, run the CLI with Node.js 22 or later; in an installed package, use `dotdial` instead of `node bin/dotdial.cjs`:

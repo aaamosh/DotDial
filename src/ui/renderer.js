@@ -32,6 +32,15 @@ const COPY = {
     playbackBuffer: 'Playback buffer', bufferHelp: 'A short reserve can smooth choppy networks. Larger values add a little delay.',
     lowestDelay: 'Lowest delay', balanced: 'Balanced', custom: 'Custom', callSounds: 'Call sounds',
     playCallSounds: 'Play connect and disconnect sounds', soundVolume: 'Sound volume',
+    connectionSound: 'Connection sound', modemSound: 'Modem (default)', telephoneSound: 'Old telephone', customSound: 'Custom audio',
+    connectionSoundHint: 'Choose the sound DotDial plays while it calls your Dot.', selectedSoundFile: 'Selected file', noSoundFile: 'No file selected',
+    chooseSoundFile: 'Choose file', playPreview: 'Play preview', stopPreview: 'Stop', soundFileLimits: 'MP3 or WAV · up to 30 seconds / 10 MB',
+    previewingSound: 'Playing sound preview…', previewFinished: 'Preview finished.', previewStopped: 'Preview stopped.',
+    soundFileInvalid: 'Choose a local MP3 or WAV file.', soundFileUnavailable: 'The selected sound file could not be read. Choose it again.',
+    soundFileTooLarge: 'Choose a sound file no larger than 10 MiB.', soundFileTooLong: 'Choose a sound no longer than 30 seconds.',
+    soundDecodeFailed: 'This file could not be decoded as MP3 or WAV.', soundDecodeBusy: 'A sound is still being prepared. Try again in a moment.',
+    callInProgress: 'Finish the call or replay before previewing a sound.', soundPreviewUnavailable: 'Sound preview is unavailable right now.',
+    soundChooseCancelled: 'Choose a sound file before saving or previewing.',
     startMutedMic: 'Start calls with mic muted', startMutedMicHint: 'You can unmute from the call panel.',
     startMutedSpeakers: 'Start calls with speakers muted', startMutedSpeakersHint: 'Incoming voice can still be saved as a missed reply.',
     personalize: 'PERSONALIZE', appearanceIntro: 'Give the call panel a calm look that fits your desktop.',
@@ -82,7 +91,7 @@ const DEFAULTS = {
   version: 1,
   dot: { url: '', displayName: 'My dot', expectedEmail: '' },
   general: { startAtLogin: false, hotkey: 'CommandOrControl+Alt+Space' },
-  audio: { bufferMs: 0, microphoneDeviceId: 'default', outputDeviceId: 'default', sounds: true, soundVolume: .55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false },
+  audio: { bufferMs: 0, microphoneDeviceId: 'default', outputDeviceId: 'default', sounds: true, connectionSound: 'modem', customSoundPath: '', soundVolume: .55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false },
   wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3' },
   recording: { enabled: true, maxMegabytes: 200 },
   appearance: { theme: 'system', panelOpacity: .86, showPanel: true, language: 'en' },
@@ -97,6 +106,8 @@ let unsaved = false, configLoading = false;
 let latestSnapshot = {};
 let knownDevices = { inputs: [], outputs: [] };
 let toastTimer = null;
+let selectedSoundPath = '';
+let soundPreviewActive = false;
 
 function copy(key) { return COPY.en[key] || key; }
 function cloneJson(value) { return JSON.parse(JSON.stringify(value)); }
@@ -198,6 +209,8 @@ function fillForm(config) {
   assign('audio-buffer', merged.audio.bufferMs);
   assign('audio-sound-volume', merged.audio.soundVolume);
   assign('audio-sound-volume-value', `${Math.round(Number(merged.audio.soundVolume) * 100)}%`);
+  assign('audio-connection-sound', ['modem', 'telephone', 'custom'].includes(merged.audio.connectionSound) ? merged.audio.connectionSound : 'modem');
+  selectedSoundPath = typeof merged.audio.customSoundPath === 'string' ? merged.audio.customSoundPath : '';
   assign('panel-opacity', merged.appearance.panelOpacity);
   assign('panel-opacity-value', `${Math.round(Number(merged.appearance.panelOpacity) * 100)}%`);
   assign('global-hotkey', merged.general.hotkey);
@@ -222,6 +235,7 @@ function fillForm(config) {
   setWakeControls(merged.wakeWord.enabled);
   $('#sound-volume-field').classList.toggle('fields-disabled', !merged.audio.sounds);
   setSoundControls(merged.audio.sounds);
+  renderSelectedSoundPath();
   updateSidebar(merged, latestSnapshot);
   applyAppearance(merged);
   const saved = $('#save-status');
@@ -239,6 +253,115 @@ function setWakeControls(enabled) {
 function setSoundControls(enabled) {
   const control = $('#audio-sound-volume');
   if (control) control.disabled = !enabled;
+}
+function renderSelectedSoundPath() {
+  const output = $('#custom-sound-path');
+  if (!output) return;
+  output.textContent = selectedSoundPath || copy('noSoundFile');
+  output.title = selectedSoundPath;
+}
+function setSoundPreviewControls(active) {
+  soundPreviewActive = active;
+  const play = $('#preview-sound'), stop = $('#stop-sound-preview');
+  if (play) play.disabled = active;
+  if (stop) stop.disabled = !active;
+}
+function soundErrorMessage(error) {
+  const code = error?.code || error?.error?.code;
+  const key = ({
+    sound_file_invalid: 'soundFileInvalid', sound_file_unavailable: 'soundFileUnavailable',
+    sound_file_too_large: 'soundFileTooLarge', sound_file_too_long: 'soundFileTooLong',
+    sound_decode_failed: 'soundDecodeFailed', sound_decode_busy: 'soundDecodeBusy',
+    sound_decode_cancelled: 'previewStopped', call_in_progress: 'callInProgress',
+    sound_preview_unavailable: 'soundPreviewUnavailable',
+  })[code];
+  if (key) return copy(key);
+  const message = error?.error?.message || error?.message;
+  return typeof message === 'string' && message.length <= 200 && !/[\u0000-\u001f\u007f]/u.test(message)
+    ? message : copy('soundPreviewUnavailable');
+}
+async function selectCustomSound() {
+  const status = $('#sound-preview-status');
+  status.textContent = '';
+  status.className = 'status-note sound-preview-status';
+  if (!api || typeof api.chooseSoundFile !== 'function') {
+    status.textContent = copy('soundPreviewUnavailable');
+    status.className = 'status-note sound-preview-status error';
+    return false;
+  }
+  try {
+    const result = await api.chooseSoundFile();
+    if (result?.status === 'selected' && typeof result.filePath === 'string' && result.filePath.length <= 4096) {
+      selectedSoundPath = result.filePath;
+      $('#audio-connection-sound').value = 'custom';
+      renderSelectedSoundPath();
+      markUnsaved();
+      $('#sound-preview-status').textContent = '';
+      $('#sound-preview-status').className = 'status-note sound-preview-status';
+      return true;
+    }
+    if (result?.status === 'error') {
+      $('#sound-preview-status').textContent = soundErrorMessage(result.error);
+      $('#sound-preview-status').className = 'status-note sound-preview-status error';
+      return false;
+    }
+  } catch (error) {
+    $('#sound-preview-status').textContent = soundErrorMessage(error);
+    $('#sound-preview-status').className = 'status-note sound-preview-status error';
+    return false;
+  }
+  return false;
+}
+async function ensureCustomSoundSelected() {
+  if ($('#audio-connection-sound').value !== 'custom' || selectedSoundPath) return true;
+  if (await selectCustomSound()) return true;
+  if (!$('#sound-preview-status').classList.contains('error')) {
+    $('#sound-preview-status').textContent = copy('soundChooseCancelled');
+    $('#sound-preview-status').className = 'status-note sound-preview-status error';
+  }
+  return false;
+}
+async function playSoundPreview() {
+  if (soundPreviewActive || !api) return;
+  if (!await ensureCustomSoundSelected()) return;
+  const connectionSound = $('#audio-connection-sound').value;
+  const customSoundPath = selectedSoundPath;
+  const soundVolume = Number($('#audio-sound-volume').value);
+  if (!['modem', 'telephone', 'custom'].includes(connectionSound) || !Number.isFinite(soundVolume) || soundVolume < 0 || soundVolume > 1) {
+    $('#sound-preview-status').textContent = copy('soundPreviewUnavailable');
+    $('#sound-preview-status').className = 'status-note sound-preview-status error';
+    return;
+  }
+  setSoundPreviewControls(true);
+  $('#sound-preview-status').textContent = copy('previewingSound');
+  $('#sound-preview-status').className = 'status-note sound-preview-status';
+  try {
+    const result = await api.previewSound({ connectionSound, customSoundPath, soundVolume });
+    if (result?.status !== 'preview_finished' && result?.status !== 'preview_stopped') {
+      $('#sound-preview-status').textContent = soundErrorMessage(result?.error || result);
+      $('#sound-preview-status').className = 'status-note sound-preview-status error';
+    } else {
+      $('#sound-preview-status').textContent = copy(result?.status === 'preview_stopped' ? 'previewStopped' : 'previewFinished');
+      $('#sound-preview-status').className = 'status-note sound-preview-status success';
+    }
+  } catch (error) {
+    $('#sound-preview-status').textContent = soundErrorMessage(error);
+    $('#sound-preview-status').className = 'status-note sound-preview-status error';
+  } finally { setSoundPreviewControls(false); }
+}
+async function stopSoundPreview() {
+  if (!soundPreviewActive || !api) return;
+  $('#sound-preview-status').textContent = copy('previewingSound');
+  try {
+    const result = await api.stopSoundPreview();
+    if (result?.status === 'error' || result?.error) {
+      $('#sound-preview-status').textContent = soundErrorMessage(result.error || result);
+      $('#sound-preview-status').className = 'status-note sound-preview-status error';
+    }
+  } catch (error) {
+    $('#sound-preview-status').textContent = soundErrorMessage(error);
+    $('#sound-preview-status').className = 'status-note sound-preview-status error';
+  }
 }
 function takeForm() {
   const config = cloneJson(loadedConfig || DEFAULTS);
@@ -273,6 +396,10 @@ function takeForm() {
   config.audio.microphoneDeviceId = $('#audio-microphone').value || 'default';
   config.audio.outputDeviceId = $('#audio-output').value || 'default';
   config.audio.sounds = $('#audio-sounds').checked;
+  config.audio.connectionSound = $('#audio-connection-sound').value;
+  config.audio.customSoundPath = selectedSoundPath;
+  if (!['modem', 'telephone', 'custom'].includes(config.audio.connectionSound)) throw new Error('invalid_sound');
+  if (config.audio.customSoundPath && (!config.audio.customSoundPath.startsWith('/') || config.audio.customSoundPath.length > 4096)) throw new Error('invalid_sound');
   config.audio.soundVolume = numeric('audio-sound-volume', 0, 1);
   config.audio.microphoneInitiallyMuted = $('#mic-initially-muted').checked;
   config.audio.speakersInitiallyMuted = $('#speakers-initially-muted').checked;
@@ -297,6 +424,7 @@ function takeForm() {
 function explainError(error) {
   const map = { invalid_url: 'invalidDotUrl', invalid_email: 'invalidEmail', invalid_launcher: 'invalidLauncher', invalid_number: 'invalidNumber' };
   map.invalid_model_path = 'Model path must be absolute, for example /home/user/model.';
+  map.invalid_sound = 'Choose a supported connection sound and a local MP3 or WAV file.';
   return copy(map[error?.message] || 'saveFailed');
 }
 async function loadConfig({ quiet = false } = {}) {
@@ -313,6 +441,7 @@ async function loadConfig({ quiet = false } = {}) {
 }
 async function saveForm() {
   if (!api) return;
+  if (!await ensureCustomSoundSelected()) return;
   let config;
   try { config = takeForm(); }
   catch (error) {
@@ -532,6 +661,9 @@ function setupSettings() {
   $('#login-connect').addEventListener('click', async () => { await runCommand('LOGIN'); toast(copy('accountOpen')); });
   $('#paste-dot-link').addEventListener('click', pasteDotLink);
   $('#scan-devices').addEventListener('click', scanDevices);
+  $('#choose-sound-file').addEventListener('click', () => { void selectCustomSound(); });
+  $('#preview-sound').addEventListener('click', () => { void playSoundPreview(); });
+  $('#stop-sound-preview').addEventListener('click', () => { void stopSoundPreview(); });
   $('#wake-setup').addEventListener('click', async () => {
     $('#wake-setup-status').textContent = copy('wakeSetupStarted');
     const result = await runCommand('WAKE_SETUP');

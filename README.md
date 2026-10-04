@@ -29,7 +29,7 @@ These screenshots are from the local synthetic demo. They do not show a live cal
 - Stores incoming voice locally only while speaker output is muted and recording is enabled. It does not record the microphone or create a transcript.
 - Plays saved replies oldest first. A clip is deleted only after it finishes; stopping playback keeps it for another try.
 - Offers an optional offline English wake word. It is disabled by default and requires a separate model download.
-- Plays a real 1997 modem handshake while connecting. It stops as soon as the call connects; sound effects and their volume are configurable.
+- Plays a real 1997 modem handshake while connecting. Choose the modem, familiar telephone tones, or your own MP3/WAV in Voice settings, with a preview and volume control. The sound stops as soon as the call connects.
 - Uses your existing ChatGPT account through a sign-in window owned by DotDial. No API key is needed.
 
 The demo opens settings with simulated call states and does not sign in, contact ChatGPT, start a call, or access a microphone.

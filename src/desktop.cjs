@@ -11,6 +11,9 @@ const IPC = Object.freeze({
   configSave: 'dotdial:config-save',
   command: 'dotdial:command',
   devices: 'dotdial:devices',
+  soundChoose: 'dotdial:sound-choose',
+  soundPreview: 'dotdial:sound-preview',
+  soundPreviewStop: 'dotdial:sound-preview-stop',
   menu: 'dotdial:menu',
   move: 'dotdial:move',
 });
@@ -134,6 +137,24 @@ function safeErrorCode(error) {
   return code;
 }
 
+const SOUND_ERROR_MESSAGES = Object.freeze({
+  sound_file_invalid: 'Choose a local MP3 or WAV file.',
+  sound_file_unavailable: 'The selected sound file could not be read. Choose it again.',
+  sound_file_too_large: 'Choose a sound file no larger than 10 MiB.',
+  sound_file_too_long: 'Choose a sound no longer than 30 seconds.',
+  sound_decode_failed: 'This file could not be decoded as MP3 or WAV.',
+  sound_decode_cancelled: 'Sound preview stopped.',
+  sound_decode_busy: 'A sound is still being prepared. Try again in a moment.',
+  call_in_progress: 'Finish the call or replay before previewing a sound.',
+  sound_preview_unavailable: 'Sound preview is unavailable right now.',
+  operation_failed: 'Sound preview could not be completed.',
+});
+
+function soundFailure(error, fallback = 'operation_failed') {
+  const code = typeof error?.code === 'string' && Object.hasOwn(SOUND_ERROR_MESSAGES, error.code) ? error.code : fallback;
+  return { status: 'error', error: { code, message: SOUND_ERROR_MESSAGES[code] } };
+}
+
 function validPanelPosition(value) {
   return value && Number.isInteger(value.x) && Number.isInteger(value.y) &&
     Math.abs(value.x) <= 1000000 && Math.abs(value.y) <= 1000000;
@@ -166,7 +187,7 @@ function clampPanelPosition(position, area, size) {
   };
 }
 
-function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}, getAudioDevices } = {}) {
+function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}, getAudioDevices, chooseSoundFile, previewSound, stopSoundPreview } = {}) {
   const electron = require('electron');
   const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, dialog } = electron;
   const stateProvider = typeof getSnapshot === 'function' ? getSnapshot : () => ({});
@@ -219,6 +240,11 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
     };
     ipcMain.handle(channel, wrapped);
     handlers.push(channel);
+  };
+  const requireSettingsSender = event => {
+    if (!settings || settings.isDestroyed() || settings.webContents !== event.sender) {
+      throw Object.assign(new Error('untrusted_renderer'), { code: 'untrusted_renderer' });
+    }
   };
   const optionsFor = ({ width, height, minWidth, minHeight, transparent, alwaysOnTop = false, resizable = true }) => ({
     width, height, minWidth, minHeight, show: false, frame: !transparent,
@@ -360,6 +386,52 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
       })).filter(device => device.id) : [];
       return { inputs: normalize(devices?.inputs), outputs: normalize(devices?.outputs) };
     } catch { return { inputs: [], outputs: [], error: 'devices_unavailable' }; }
+  });
+  handle(IPC.soundChoose, async event => {
+    requireSettingsSender(event);
+    if (typeof chooseSoundFile !== 'function' && typeof dialog?.showOpenDialog !== 'function') return { status: 'error', error: { code: 'sound_preview_unavailable', message: SOUND_ERROR_MESSAGES.sound_preview_unavailable } };
+    try {
+      const result = typeof chooseSoundFile === 'function'
+        ? await chooseSoundFile()
+        : await dialog.showOpenDialog(settings, {
+          title: 'Choose a connection sound',
+          properties: ['openFile'],
+          filters: [{ name: 'Audio files', extensions: ['mp3', 'wav'] }],
+        });
+      if (result?.status === 'cancelled' || result?.canceled || (!result?.filePath && (!Array.isArray(result?.filePaths) || !result.filePaths[0]))) return { status: 'cancelled' };
+      const filePath = result?.filePath || result?.filePaths?.[0];
+      if (typeof filePath !== 'string' || filePath.length > 4096 || !path.isAbsolute(filePath) || !/\.(mp3|wav)$/iu.test(filePath)) return soundFailure({ code: 'sound_file_invalid' }, 'sound_file_invalid');
+      return { status: 'selected', filePath, fileName: path.basename(filePath).slice(0, 255) };
+    } catch { return { status: 'error', error: { code: 'sound_preview_unavailable', message: SOUND_ERROR_MESSAGES.sound_preview_unavailable } }; }
+  });
+  handle(IPC.soundPreview, async (event, payload) => {
+    requireSettingsSender(event);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+        !['modem', 'telephone', 'custom'].includes(payload.connectionSound) ||
+        typeof payload.customSoundPath !== 'string' || payload.customSoundPath.length > 4096 ||
+        (payload.customSoundPath && !path.isAbsolute(payload.customSoundPath)) ||
+        !Number.isFinite(payload.soundVolume) || payload.soundVolume < 0 || payload.soundVolume > 1) {
+      return soundFailure({ code: 'sound_file_invalid' }, 'sound_file_invalid');
+    }
+    if (payload.connectionSound === 'custom' && !payload.customSoundPath) return soundFailure({ code: 'sound_file_invalid' }, 'sound_file_invalid');
+    if (typeof previewSound !== 'function') return soundFailure({ code: 'sound_preview_unavailable' }, 'sound_preview_unavailable');
+    try {
+      const result = await previewSound({
+        connectionSound: payload.connectionSound,
+        customSoundPath: payload.customSoundPath,
+        soundVolume: payload.soundVolume,
+      });
+      if (result?.status === 'preview_finished' || result?.status === 'preview_stopped') return result;
+      const failure = result?.error || result || {};
+      const code = failure.code || (Object.hasOwn(SOUND_ERROR_MESSAGES, result?.status) ? result.status : undefined);
+      return soundFailure({ ...failure, code: code || 'operation_failed' });
+    } catch (error) { return soundFailure(error); }
+  });
+  handle(IPC.soundPreviewStop, async event => {
+    requireSettingsSender(event);
+    if (typeof stopSoundPreview !== 'function') return { status: 'preview_stopped' };
+    try { return await stopSoundPreview(); }
+    catch (error) { return soundFailure(error); }
   });
   handle(IPC.menu, async () => { tray?.popUpContextMenu(buildContextMenu()); return { status: 'shown' }; });
   handle(IPC.move, (_event, payload) => {

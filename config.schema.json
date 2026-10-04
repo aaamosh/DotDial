@@ -37,13 +37,16 @@
     },
     "audio": {
       "type": "object", "additionalProperties": false,
-      "required": ["bufferMs", "microphoneDeviceId", "outputDeviceId", "sounds", "soundVolume", "microphoneInitiallyMuted", "speakersInitiallyMuted"],
+      "required": ["bufferMs", "microphoneDeviceId", "outputDeviceId", "sounds", "soundVolume", "connectionSound", "customSoundPath", "microphoneInitiallyMuted", "speakersInitiallyMuted"],
+      "allOf": [{ "if": { "properties": { "connectionSound": { "const": "custom" } }, "required": ["connectionSound"] }, "then": { "properties": { "customSoundPath": { "minLength": 1 } } } }],
       "properties": {
         "bufferMs": { "type": "integer", "minimum": 0, "maximum": 2000, "default": 0, "description": "0 selects the adapter's default buffer policy." },
         "microphoneDeviceId": { "type": "string", "minLength": 1, "maxLength": 512, "default": "default" },
         "outputDeviceId": { "type": "string", "minLength": 1, "maxLength": 512, "default": "default" },
         "sounds": { "type": "boolean", "default": true },
         "soundVolume": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.55 },
+        "connectionSound": { "type": "string", "enum": ["modem", "telephone", "custom"], "default": "modem" },
+        "customSoundPath": { "type": "string", "maxLength": 4096, "pattern": "^(?:|/[^\\u0000-\\u001f\\u007f]*\\.(?:[mM][pP]3|[wW][aA][vV]))$", "default": "", "description": "Absolute local MP3 or WAV path; up to 30 seconds and 10 MiB. Required for the custom connection sound." },
         "microphoneInitiallyMuted": { "type": "boolean", "default": false },
         "speakersInitiallyMuted": { "type": "boolean", "default": false }
       }

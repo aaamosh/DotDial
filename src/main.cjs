@@ -14,7 +14,7 @@ async function boot() {
   const path = require('node:path');
   const net = require('node:net');
   const { pathToFileURL } = require('node:url');
-  const { getPaths, loadConfigSnapshot, saveConfig } = require('./config.cjs');
+  const { getPaths, loadConfigSnapshot, saveConfig, validateConfig } = require('./config.cjs');
   const { attachClient } = require('./ipc_client.cjs');
   const { createBrowserIdentity } = require('./browser_identity.cjs');
   const { installQuitBarrier } = require('./quit_guard.cjs');
@@ -44,7 +44,8 @@ async function boot() {
   app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
   if (!app.requestSingleInstanceLock()) { app.exit(0); return; }
 
-  let desktop, controller, mailbox, missedPlayer, audioControls, sounds, wakeManager, webSession, server;
+  let desktop, controller, mailbox, missedPlayer, audioControls, sounds, customSounds, wakeManager, webSession, server;
+  let soundPreview = false, previewGeneration = 0;
   let loginWindow, pageReady, pageFailed = false, identityEpoch = 0, shuttingDown = false;
   let configPending = false, configError = null, wakeEpoch = 0, hotkeyAvailable = true, applyingConfig = false;
   let demoCallTimer, currentThreadId = null, callPreparing = false;
@@ -154,6 +155,23 @@ async function boot() {
     await applyDiskConfig();
     return result;
   }
+  function stopSoundPreview() {
+    if (soundPreview) { soundPreview = false; previewGeneration++; sounds?.silence(); }
+    return { status: 'preview_stopped' };
+  }
+  async function previewSound(overrides) {
+    if (busy() || state().state !== 'ready' || mailbox?.playing) throw Object.assign(failure('call_in_progress'), { message: 'Finish the call or replay before previewing a sound.' });
+    if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides) || Object.keys(overrides).some(key => !['connectionSound', 'customSoundPath', 'soundVolume'].includes(key))) {
+      throw Object.assign(failure('sound_file_invalid'), { message: 'Choose a connection sound first.' });
+    }
+    const audio = validateConfig({ ...config, audio: { ...config.audio, ...overrides } }).audio;
+    stopSoundPreview();
+    const generation = ++previewGeneration; soundPreview = true;
+    try {
+      await sounds.play('preview', audio);
+      return { status: generation === previewGeneration ? 'preview_finished' : 'preview_stopped' };
+    } finally { if (generation === previewGeneration) soundPreview = false; }
+  }
   async function applyDiskConfig() {
     if (shuttingDown || applyingConfig) return;
     let next;
@@ -164,7 +182,11 @@ async function boot() {
     try {
       const old = config; config = next.config; snapshot = next;
       if (mailbox) mailbox.limitBytes = config.recording.maxMegabytes * 1024 * 1024;
-      if (sounds) { sounds.enabled = config.audio.sounds; sounds.volume = config.audio.soundVolume; }
+      if (JSON.stringify(old.audio) !== JSON.stringify(config.audio)) {
+        stopSoundPreview();
+        sounds?.configure(config.audio);
+      }
+      if (config.audio.connectionSound === 'custom') void customSounds?.prepare(config.audio.customSoundPath).catch(() => {});
       if (webSession && old.network.signalingProxy !== config.network.signalingProxy) {
         await webSession.setProxy(config.network.signalingProxy ? { proxyRules: config.network.signalingProxy } : { mode: 'direct' });
         await webSession.closeAllConnections();
@@ -209,7 +231,7 @@ async function boot() {
     if (name === 'STATUS') return state();
     if (name === 'SETTINGS') { desktop.openSettings(); return { status: 'settings_opened' }; }
     if (demo) {
-      if (name === 'WAKE') { clearTimeout(demoCallTimer); publish({ ...lastState, state: 'starting' }); demoCallTimer = setTimeout(() => publish({ ...lastState, state: 'active', local_listening: true, microphone_muted: false }), 600); }
+      if (name === 'WAKE') { stopSoundPreview(); clearTimeout(demoCallTimer); publish({ ...lastState, state: 'starting' }); demoCallTimer = setTimeout(() => publish({ ...lastState, state: 'active', local_listening: true, microphone_muted: false }), 600); }
       if (name === 'STOP') { clearTimeout(demoCallTimer); publish({ state: 'ready', local_listening: false, missed_count: 0 }); }
       if (name === 'MUTE' || name === 'UNMUTE') publish({ ...lastState, microphone_muted: name === 'MUTE', local_listening: name === 'UNMUTE' });
       if (name.startsWith('SPEAKERS_')) publish({ ...lastState, speakers_muted: name === 'SPEAKERS_MUTE' });
@@ -221,6 +243,7 @@ async function boot() {
       if (!config.dot.url) { desktop.openSettings(); return { status: 'dot_not_configured' }; }
       if (controller.state === 'active' && !callPreparing) return audioControls.activate(() => sounds.play('activated'));
       if (callPreparing || ['starting', 'stopping'].includes(controller.state)) return { status: state().state };
+      stopSoundPreview();
       const ticket = ++wakeEpoch; callPreparing = true; publish();
       try {
         if (mailbox.playing) await mailbox.stop();
@@ -232,7 +255,7 @@ async function boot() {
     if (name === 'STOP') { wakeEpoch++; callPreparing = false; audioControls.cancelActivation(); await mailbox.stop(); void controller.stop(); return { status: 'accepted_stop' }; }
     if (name === 'MUTE' || name === 'UNMUTE') return audioControls.microphone(name === 'UNMUTE');
     if (name === 'SPEAKERS_MUTE' || name === 'SPEAKERS_UNMUTE') return audioControls.speakers(name === 'SPEAKERS_MUTE');
-    if (name === 'MISSED_PLAY') return audioControls.play();
+    if (name === 'MISSED_PLAY') { stopSoundPreview(); return audioControls.play(); }
     if (name === 'MISSED_STOP') { await mailbox.stop(); return { status: 'playback_stopped' }; }
     if (name === 'MISSED_CLEAR') { await mailbox.clear(); return { status: 'missed_cleared' }; }
     if (name === 'RECOVER') return controller.recover();
@@ -241,16 +264,19 @@ async function boot() {
   try {
     await app.whenReady();
     const { createDesktop } = require('./desktop.cjs');
-    desktop = createDesktop({ getSnapshot: state, getConfig: () => loadConfigSnapshot(paths.configFile), saveConfig: saveSettings, command, paths, getAudioDevices });
+    const { CallSounds } = await loadModule('call_sounds.mjs');
+    const { CustomSoundCache } = require('./custom_sound.cjs');
+    customSounds = new CustomSoundCache({ BrowserWindow, session, runtimeDir: paths.runtimeDir });
+    sounds = new CallSounds({ ...config.audio, resolveCustomSound: file => customSounds.prepare(file) });
+    desktop = createDesktop({ getSnapshot: state, getConfig: () => loadConfigSnapshot(paths.configFile), saveConfig: saveSettings, command, paths, getAudioDevices, previewSound, stopSoundPreview });
     if (!demo) {
       webSession = session.fromPartition('persist:dotdial');
       webSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
       webSession.setPermissionCheckHandler(() => false);
       await webSession.setProxy(config.network.signalingProxy ? { proxyRules: config.network.signalingProxy } : { mode: 'direct' });
-      const [{ DotVoiceSession }, { routedChromiumMedia }, { MissedAudio }, { MissedPlayer }, { CallController }, { CallAudioControls }, { CallSounds }] = await Promise.all([
-        loadModule('dot_voice.mjs'), loadModule('media_worker_peer.mjs'), loadModule('missed_audio.mjs'), loadModule('missed_player.mjs'), loadModule('call_controller.mjs'), loadModule('call_audio_controls.mjs'), loadModule('call_sounds.mjs'),
+      const [{ DotVoiceSession }, { routedChromiumMedia }, { MissedAudio }, { MissedPlayer }, { CallController }, { CallAudioControls }] = await Promise.all([
+        loadModule('dot_voice.mjs'), loadModule('media_worker_peer.mjs'), loadModule('missed_audio.mjs'), loadModule('missed_player.mjs'), loadModule('call_controller.mjs'), loadModule('call_audio_controls.mjs'),
       ]);
-      sounds = new CallSounds({ enabled: config.audio.sounds, volume: config.audio.soundVolume });
       missedPlayer = new MissedPlayer({ BrowserWindow, session, getOutputDevice: () => config.audio.outputDeviceId });
       mailbox = new MissedAudio({ directory: paths.recordingsDir, player: missedPlayer, limitBytes: config.recording.maxMegabytes * 1024 * 1024, onChange: () => publish() });
       const makeSession = () => {
@@ -301,6 +327,7 @@ async function boot() {
       await wakeManager?.close();
       const stopped = controller?.stop(); await mailbox?.stop(); await stopped;
       await mailbox?.saveTail; await missedPlayer?.close(); sounds?.silence();
+      await customSounds?.close();
       webSession?.flushStorageData(); await webSession?.cookies.flushStore();
       desktop?.dispose();
       server?.close(); try { fs.unlinkSync(paths.socketPath); } catch {}

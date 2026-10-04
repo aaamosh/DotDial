@@ -22,6 +22,8 @@ const DEFAULTS = {
     outputDeviceId: 'default',
     sounds: true,
     soundVolume: 0.55,
+    connectionSound: 'modem',
+    customSoundPath: '',
     microphoneInitiallyMuted: false,
     speakersInitiallyMuted: false,
   },
@@ -193,6 +195,16 @@ function validateConfig(input) {
   requireString(config.audio.outputDeviceId, 'audio.outputDeviceId', { min: 1, max: 512, allowEmpty: false });
   requireBoolean(config.audio.sounds, 'audio.sounds');
   requireNumber(config.audio.soundVolume, 'audio.soundVolume', 0, 1);
+  if (!['modem', 'telephone', 'custom'].includes(config.audio.connectionSound)) {
+    invalid('audio.connectionSound', 'must be modem, telephone, or custom');
+  }
+  requireString(config.audio.customSoundPath, 'audio.customSoundPath', { max: 4096 });
+  if (config.audio.customSoundPath && (!path.isAbsolute(config.audio.customSoundPath) || !/\.(mp3|wav)$/iu.test(config.audio.customSoundPath))) {
+    invalid('audio.customSoundPath', 'must be an absolute path to an MP3 or WAV file');
+  }
+  if (config.audio.connectionSound === 'custom' && !config.audio.customSoundPath) {
+    invalid('audio.customSoundPath', 'requires an MP3 or WAV file when the custom sound is selected');
+  }
   requireBoolean(config.audio.microphoneInitiallyMuted, 'audio.microphoneInitiallyMuted');
   requireBoolean(config.audio.speakersInitiallyMuted, 'audio.speakersInitiallyMuted');
 

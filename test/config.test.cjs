@@ -28,6 +28,7 @@ test('defaults match the versioned DotDial settings contract', () => {
     audio: {
       bufferMs: 0, microphoneDeviceId: 'default', outputDeviceId: 'default', sounds: true,
       soundVolume: 0.55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false,
+      connectionSound: 'modem', customSoundPath: '',
     },
     wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3' },
     recording: { enabled: true, maxMegabytes: 200 },
@@ -69,6 +70,18 @@ test('strict validation rejects unknown keys and invalid values with stable code
   assert.throws(() => validateConfig({ recording: { maxMegabytes: 0 } }), {
     code: 'DOTDIAL_CONFIG_INVALID', field: 'recording.maxMegabytes',
   });
+});
+
+test('connection sounds default safely and custom sounds require a local MP3 or WAV path', () => {
+  assert.equal(validateConfig({ audio: { sounds: true } }).audio.connectionSound, 'modem');
+  assert.equal(validateConfig({ audio: { connectionSound: 'telephone' } }).audio.customSoundPath, '');
+  for (const customSoundPath of ['/tmp/custom tone.WAV', '/tmp/custom.mp3']) {
+    assert.equal(validateConfig({ audio: { connectionSound: 'custom', customSoundPath } }).audio.customSoundPath, customSoundPath);
+  }
+  for (const customSoundPath of ['', 'relative.wav', 'https://example.com/call.mp3', '/tmp/call.ogg', '/tmp/call.wav\n']) {
+    assert.throws(() => validateConfig({ audio: { connectionSound: 'custom', customSoundPath } }), { field: 'audio.customSoundPath' });
+  }
+  assert.throws(() => validateConfig({ audio: { connectionSound: 'unknown' } }), { field: 'audio.connectionSound' });
 });
 
 test('proxy and launcher settings cannot carry recognized credentials', () => {

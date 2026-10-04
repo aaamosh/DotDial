@@ -19,6 +19,8 @@ DotDial has no analytics or telemetry. Normal use still contacts ChatGPT because
 
 ## Files and retention
 
+Custom connection sounds are read only from the local MP3 or WAV path you choose. They are never uploaded. A decoded PCM copy is held in a private temporary directory under `$XDG_RUNTIME_DIR/dotdial/` and removed on normal exit. After a crash it can remain until the runtime directory is cleared, normally at logout or reboot. The original sound file is not modified or deleted.
+
 Defaults follow XDG Base Directory paths:
 
 | Purpose | Path |
