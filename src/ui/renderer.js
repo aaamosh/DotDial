@@ -478,8 +478,16 @@ function updateSettingsState(state = {}) {
     const row = messages[state.wake_status];
     if (row) { wakeStatus.textContent = copy(row[0]); wakeStatus.className = `status-note ${row[1]}`.trim(); }
   }
-  if (!unsaved && state.config_error) { $('#save-status').textContent = 'Invalid settings JSON. Correct the file and save it.'; }
-  else if (!unsaved && state.config_pending) { $('#save-status').textContent = 'Settings will apply after the call.'; }
+  if (!unsaved) {
+    const pending = Boolean(state.config_error || state.config_pending);
+    const saved = $('#save-status');
+    saved.textContent = state.config_error ? 'Invalid settings JSON. Correct the file and save it.'
+      : state.config_pending ? 'Settings will apply after the call.' : copy('allChangesSaved');
+    saved.classList.toggle('success', !pending);
+    const indicator = $('.saved-check');
+    indicator.textContent = state.config_error ? '!' : state.config_pending ? '…' : '✓';
+    indicator.classList.toggle('warning', pending);
+  }
   updateSidebar(loadedConfig || DEFAULTS, state);
 }
 function setupPanel() {

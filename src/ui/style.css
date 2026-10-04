@@ -228,6 +228,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .save-bar { position: fixed; z-index: 5; right: 0; bottom: 0; left: 238px; display: flex; align-items: center; justify-content: space-between; min-height: 61px; padding: 0 max(36px, calc((100% - 875px) / 2)); border-top: 1px solid rgba(177, 201, 225, .085); background: rgba(13, 18, 25, .82); box-shadow: 0 -12px 38px rgba(3, 7, 11, .15); backdrop-filter: blur(18px); }
 .saved-state { display: flex; align-items: center; gap: 7px; color: #8296a9; font-size: 10px; }
 .saved-check { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; color: #0b2119; background: #69dcb2; font-size: 9px; font-weight: 800; }
+.saved-check.warning { color: #e2bb80; background: rgba(226, 187, 128, .16); }
 .save-bar-actions { display: flex; align-items: center; gap: 9px; }
 .inline-alert { margin: 15px 0 0; padding: 10px 12px; border: 1px solid rgba(255, 136, 149, .23); border-radius: 8px; color: #ffb0b7; background: rgba(193, 74, 91, .09); font-size: 10px; line-height: 1.5; }
 .error-alert { border-color: rgba(255, 136, 149, .25); color: #ffb0b7; background: rgba(193, 74, 91, .1); }

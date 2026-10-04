@@ -39,9 +39,11 @@ void (async () => {
   assert.equal(stale.error, 'DOTDIAL_CONFIG_CONFLICT');
   // Invalid external JSON is reported without changing the last valid settings.
   fs.writeFileSync(demoConfig, '{');
-  await delay(1200);
+  await until(() => script(settings, 'document.querySelector("#save-status").textContent.startsWith("Invalid settings JSON")'), 'invalid_json_not_reported');
+  assert.equal(await script(settings, 'document.querySelector(".saved-check").classList.contains("warning")'), true);
   fs.writeFileSync(demoConfig, JSON.stringify(envelope.config, null, 2));
-  await delay(1200);
+  await until(() => script(settings, 'document.querySelector("#save-status").textContent === "All changes saved"'), 'restored_json_status_not_cleared');
+  assert.equal(await script(settings, 'document.querySelector(".saved-check").classList.contains("warning")'), false);
   await script(settings, 'document.querySelector(".nav-item[data-section=connect]").click()');
   await delay(500);
   fs.writeFileSync(path.join(output, 'settings.png'), (await settings.webContents.capturePage()).toPNG());
