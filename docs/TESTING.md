@@ -82,11 +82,14 @@ Add `--wake-data-dir /path/to/qa-wake` to the Linux runner. Subsequent pipeline
 checks use the installed local model and environment; the smoke itself does not
 install dependencies or contact an account.
 
-The input is a reproducible non-speech WAV containing 440 Hz bursts at 48 kHz. The
-actual capture graph supplies 16 kHz mono float32 PCM in 6,400-byte chunks. The
-test checks nonzero finite samples, acknowledged pipe writes, bounded pending
-audio, pause/resume, cleanup after a deliberately stopped Python reader, and a
-fresh restart. It also requires no wake event from this non-speech fixture.
+Linux uses a reproducible non-speech WAV containing 440 Hz bursts at 48 kHz.
+macOS uses Chromium's built-in fake microphone, which generates 400 Hz beeps
+without reading a temporary file through the audio-service sandbox. Both keep
+the sandbox and DotDial's actual capture graph enabled. The graph supplies 16 kHz
+mono float32 PCM in 6,400-byte chunks. The test checks nonzero finite samples,
+acknowledged pipe writes, bounded pending audio, pause/resume, cleanup after a
+deliberately stopped Python reader, and a fresh restart. It also requires no
+wake event from the non-speech input. The report identifies which fixture ran.
 
 Acknowledged writes establish that the pipe accepted audio. They do not prove
 keyword recognition or measure recognition accuracy. The native decoder check

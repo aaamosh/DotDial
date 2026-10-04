@@ -31,27 +31,33 @@ const MODEL_PATH = path.join(DATA, 'models', MODEL);
 const CHUNK_BYTES = 6400, MAX_PENDING = 4, MAX_QUEUED_BYTES = CHUNK_BYTES * MAX_PENDING;
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-wake-pipeline-'));
 const fakeAudio = path.join(temporary, 'synthetic-440hz.wav');
+const builtinFakeAudio = process.platform === 'darwin';
 // A reproducible non-speech input: four seconds of 440 Hz bursts at 48 kHz.
 // The real capture graph resamples this to 16 kHz; no speech is fabricated.
+// On macOS Chromium's audio sandbox cannot read arbitrary temporary WAVs.
+// Its built-in fake microphone instead emits 20 ms 400 Hz beeps every 500 ms
+// without a file; both inputs traverse the unchanged production capture graph.
 const inputRate = 48000, inputFrames = inputRate * 4;
-const wave = Buffer.alloc(44 + inputFrames * 2);
-wave.write('RIFF', 0); wave.writeUInt32LE(wave.length - 8, 4); wave.write('WAVEfmt ', 8);
-wave.writeUInt32LE(16, 16); wave.writeUInt16LE(1, 20); wave.writeUInt16LE(1, 22);
-wave.writeUInt32LE(inputRate, 24); wave.writeUInt32LE(inputRate * 2, 28);
-wave.writeUInt16LE(2, 32); wave.writeUInt16LE(16, 34); wave.write('data', 36); wave.writeUInt32LE(inputFrames * 2, 40);
-for (let index = 0; index < inputFrames; index++) {
-  const seconds = index / inputRate, cycle = seconds % 0.5;
-  const envelope = cycle < 0.35 ? Math.min(1, cycle / 0.005, (0.35 - cycle) / 0.005) : 0;
-  wave.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * seconds) * envelope * 0.25 * 32767), 44 + index * 2);
+if (!builtinFakeAudio) {
+  const wave = Buffer.alloc(44 + inputFrames * 2);
+  wave.write('RIFF', 0); wave.writeUInt32LE(wave.length - 8, 4); wave.write('WAVEfmt ', 8);
+  wave.writeUInt32LE(16, 16); wave.writeUInt16LE(1, 20); wave.writeUInt16LE(1, 22);
+  wave.writeUInt32LE(inputRate, 24); wave.writeUInt32LE(inputRate * 2, 28);
+  wave.writeUInt16LE(2, 32); wave.writeUInt16LE(16, 34); wave.write('data', 36); wave.writeUInt32LE(inputFrames * 2, 40);
+  for (let index = 0; index < inputFrames; index++) {
+    const seconds = index / inputRate, cycle = seconds % 0.5;
+    const envelope = cycle < 0.35 ? Math.min(1, cycle / 0.005, (0.35 - cycle) / 0.005) : 0;
+    wave.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * seconds) * envelope * 0.25 * 32767), 44 + index * 2);
+  }
+  fs.writeFileSync(fakeAudio, wave);
 }
-fs.writeFileSync(fakeAudio, wave);
 app.setName('DotDial Wake Pipeline QA');
 app.setPath('userData', path.join(temporary, 'electron-profile'));
 app.on('window-all-closed', () => {});
 for (const flag of ['use-fake-device-for-media-stream', 'use-fake-ui-for-media-stream', 'mute-audio', 'disable-renderer-backgrounding']) {
   app.commandLine.appendSwitch(flag);
 }
-app.commandLine.appendSwitch('use-file-for-fake-audio-capture', fakeAudio);
+if (!builtinFakeAudio) app.commandLine.appendSwitch('use-file-for-fake-audio-capture', fakeAudio);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.disableHardwareAcceleration();
 
@@ -169,7 +175,9 @@ async function finish(error) {
     hostPlatform: process.platform, hostArch: process.arch, exercisedPath: 'macos_pcm', tccMocked: true,
     electron: process.versions.electron, chromium: process.versions.chrome, sourceRoot: SOURCE, dataDir: DATA,
     python: PYTHON, model: MODEL_PATH, microphone: 'chromium_fake_device', positiveSpeechTested: false,
-    syntheticInput: { kind: '440hz_sine_bursts', sampleRate: inputRate, seconds: 4, format: 'pcm16_wav' },
+    syntheticInput: builtinFakeAudio
+      ? { kind: 'chromium_builtin_square_beeps', frequencyHz: 400, beepDurationMs: 20, beepIntervalMs: 500 }
+      : { kind: '440hz_sine_bursts', sampleRate: inputRate, seconds: 4, format: 'pcm16_wav' },
     physicalMicrophoneTested: false, accountCallTested: false, audibleOutputTested: false,
     sampleRate: 16000, channels: 1, sampleFormat: 'float32le', chunkBytes: CHUNK_BYTES,
     wakeEvents, phases, states, elapsedMs: Date.now() - started,
