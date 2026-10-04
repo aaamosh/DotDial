@@ -8,13 +8,13 @@ The default location is `${XDG_CONFIG_HOME:-~/.config}/dotdial/config.json`. The
 
 | Purpose | Default |
 | --- | --- |
-| Configuration | `~/.config/dotdial/` |
-| State and logs | `~/.local/state/dotdial/` |
-| Data, recordings, browser profile | `~/.local/share/dotdial/` |
-| Cache | `~/.cache/dotdial/` |
-| Runtime socket | `$XDG_RUNTIME_DIR/dotdial/dotdial.sock` |
+| Configuration | `${XDG_CONFIG_HOME:-~/.config}/dotdial/` |
+| State and logs | `${XDG_STATE_HOME:-~/.local/state}/dotdial/` |
+| Data, recordings, browser profile, wake model and environment | `${XDG_DATA_HOME:-~/.local/share}/dotdial/` |
+| Cache path used by diagnostics | `${XDG_CACHE_HOME:-~/.cache}/dotdial/` |
+| Runtime socket | `${XDG_RUNTIME_DIR:-/run/user/<uid>}/dotdial/dotdial.sock` |
 
-Set the corresponding `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, or `XDG_RUNTIME_DIR` variables to relocate those roots. The configuration file is fully expanded to version 1 when saved. See [`config.schema.json`](../config.schema.json) for the exact fields, defaults, ranges, and strict unknown-field rules; [`config.example.json`](../config.example.json) is a complete default example. To edit the file, find its location with `dotdial config path` (or `node bin/dotdial.cjs config path` from a source checkout), open that file in a text editor, and validate it with `dotdial config validate` when done. You can also change settings from the app's Settings window.
+Set the corresponding `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, or `XDG_RUNTIME_DIR` variables to relocate those roots. On Linux, when `XDG_RUNTIME_DIR` is unset, DotDial uses `/run/user/<uid>`; the table shows the resulting runtime socket path. The configuration file is fully expanded to version 1 when saved. See [`config.schema.json`](../config.schema.json) for the exact fields, defaults, ranges, and strict unknown-field rules; [`config.example.json`](../config.example.json) is a complete default example. To edit the file, find its location with `dotdial config path` (or `node bin/dotdial.cjs config path` from a source checkout), open that file in a text editor, and validate it with `dotdial config validate` when done. You can also change settings from the app's Settings window.
 
 `dot.url` is empty until configured. Otherwise it must be an HTTPS URL of the form `https://chatgpt.com/dots/<UUID>`. `dot.expectedEmail` is an optional account identity check, not a password. Use the account's normal browser sign-in for authentication. Do not put passwords, access tokens, API keys, cookies, or proxy credentials in this file. Proxy URLs must not contain user information; configure proxy authentication through an operating-system credential store if needed. Launcher arrays are executable and argument prefixes and are started without a shell. They must not contain credentials.
 

@@ -15,24 +15,25 @@ DotDial has no analytics or telemetry. Normal use still contacts ChatGPT because
 - When speakers are muted and local recording is enabled, incoming voice is saved as WAV files under `${XDG_DATA_HOME:-~/.local/share}/dotdial/recordings`. Recording does not create a transcript and is not separately uploaded by DotDial.
 - Saved replies play oldest first. A clip is deleted only after full playback. Stopping or interrupting playback keeps the clip for another attempt. Unplayed files remain on disk until played or removed by the user.
 - The configured total storage limit defaults to 200 MiB. Keep the data directory private because it may contain spoken content.
-- The optional wake-word recognizer runs locally after its model is installed. When enabled, it continues using the microphone locally during calls, including while transmission to the dot is muted. Recognizing the phrase can unmute the call microphone and speakers; a short cue confirms activation. The model installer downloads dependencies and the model only when you explicitly run it. Wake word is off by default.
+- The optional wake-word recognizer runs locally after its model is installed. When enabled, it continues using the microphone locally during calls, including while transmission to the dot is muted. Recognizing the phrase can unmute the call microphone and speakers; a short cue confirms activation. Wake word is off by default. Dependencies and the model are downloaded only when you explicitly start setup from Voice settings or run the installer from a source checkout.
 
 ## Files and retention
 
-Custom connection sounds are read only from the local MP3 or WAV path you choose. They are never uploaded. A decoded PCM copy is held in a private temporary directory under `$XDG_RUNTIME_DIR/dotdial/` and removed on normal exit. After a crash it can remain until the runtime directory is cleared, normally at logout or reboot. The original sound file is not modified or deleted.
+Custom connection sounds are read only from the local MP3 or WAV path you choose. They are never uploaded. A decoded PCM copy is held in a private temporary directory under `${XDG_RUNTIME_DIR:-/run/user/<uid>}/dotdial/` and removed on normal exit. On Linux, `/run/user/<uid>` is the fallback when `XDG_RUNTIME_DIR` is unset. After a crash the copy can remain until the runtime directory is cleared, normally at logout or reboot. The original sound file is not modified or deleted.
 
 Defaults follow XDG Base Directory paths:
 
 | Purpose | Path |
 | --- | --- |
-| Config | `~/.config/dotdial/config.json` |
-| Logs, call and window state | `~/.local/state/dotdial/` |
-| Browser profile, recordings, wake model | `~/.local/share/dotdial/` |
-| Cache | `~/.cache/dotdial/` |
+| Config | `${XDG_CONFIG_HOME:-~/.config}/dotdial/config.json` |
+| Logs, call and window state | `${XDG_STATE_HOME:-~/.local/state}/dotdial/` |
+| Browser profile, recordings, wake model and environment | `${XDG_DATA_HOME:-~/.local/share}/dotdial/` |
+| Cache path used by diagnostics | `${XDG_CACHE_HOME:-~/.cache}/dotdial/` |
+| Runtime socket and temporary audio | `${XDG_RUNTIME_DIR:-/run/user/<uid>}/dotdial/` |
 
 DotDial writes technical call state, the floating panel position, and diagnostics locally. The last completed call retains bounded packet-loss, jitter and playout counters so a failed subsequent attempt does not erase them; this summary contains no speech, network addresses or call identifiers. The configuration and log files should not contain passwords or access tokens. Before attaching diagnostics to an issue, review them and remove personal paths or account details. Never attach recordings, browser profile data, cookies, or tokens.
 
-Uninstalling the Debian package or deleting the source checkout does not erase the data directories. To erase local data, first save any replies you want to keep, close DotDial, then remove the DotDial subdirectory from each XDG config, state, data, and cache home. Removing the data directory also deletes the persistent browser profile and all saved recordings.
+Uninstalling the Debian package or deleting the source checkout does not erase the data directories. To erase local data, first save any replies you want to keep, close DotDial, then remove the DotDial subdirectory from each XDG config, state, data, and cache home. Removing the data directory also deletes the persistent browser profile and all saved recordings. The runtime directory is normally cleared at logout or reboot.
 
 ## Demo mode
 

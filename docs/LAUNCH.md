@@ -1,6 +1,6 @@
 # Launch drafts
 
-These are drafts for a later public beta announcement. Do not post them while the repository is private. First complete the [release checklist](RELEASING.md), test the exact public build with a disposable account-owned dot, and check each community's self-promotion rules.
+These are optional drafts for community posts. Before posting, confirm that the source and beta artifacts are public, review the [release checklist](RELEASING.md), and check each community's current self-promotion rules. No community posts have been sent.
 
 ## Reddit — r/linuxapps
 
@@ -50,7 +50,7 @@ Attach the `.deb`, `.tar.gz`, and `SHA256SUMS` after the exact release artifacts
 
 ## Launch sequence
 
-1. GitHub: finish the README, screenshots, beta packages, and compatibility notes.
+1. GitHub: publish the reviewed source, beta packages, release notes, and compatibility information; verify that the download links work.
 2. Post in r/linuxapps, then r/OpenAI if their current self-promotion rules permit it.
 3. Submit Show HN after the first independent installation reports.
 4. Expand to other relevant Linux and AI communities based on actual feedback.
