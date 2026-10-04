@@ -22,6 +22,22 @@ async function until(predicate, message, timeoutMs = 12_000) {
   throw Error(message);
 }
 
+async function speakerState(peer, muted) {
+  let observed;
+  try {
+    // The RPC schedules the AudioParam; require its actual render-thread value.
+    return await until(async () => {
+      const stats = await peer.getStats();
+      observed = { speakers_muted: stats.speakers_muted, speaker_gain: stats.speaker_gain,
+        audio_context_state: stats.audio_context_state };
+      return stats.speakers_muted === muted && stats.speaker_gain === (muted ? 0 : 1) ? stats : null;
+    }, 'speaker_gain_did_not_settle', 5000);
+  } catch (error) {
+    error.message += ' ' + JSON.stringify({ expected_muted: muted, observed });
+    throw error;
+  }
+}
+
 async function capture(window, outputDirectory, filename) {
   await until(() => evaluate(window, `(() => {
     const section = document.querySelector('.settings-section.active');
@@ -127,11 +143,11 @@ async function runLocalMedia({ app, BrowserWindow, session, ipcMain }) {
 
     // --mute-audio silences the runtime while we exercise the actual gain gate.
     await peer.setSpeakersMuted(false);
-    const unmuted = await peer.getStats();
+    const unmuted = await speakerState(peer, false);
     assert.equal(unmuted.speakers_muted, false);
     assert.equal(unmuted.speaker_gain, 1);
     await peer.setSpeakersMuted(true);
-    const muted = await peer.getStats();
+    const muted = await speakerState(peer, true);
     assert.equal(muted.speakers_muted, true);
     assert.equal(muted.speaker_gain, 0);
     assert.deepEqual(failures, []);

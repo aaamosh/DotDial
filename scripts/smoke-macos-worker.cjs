@@ -26,6 +26,22 @@ async function until(predicate, message, timeoutMs = 5000) {
   throw Error(message);
 }
 
+async function speakerState(peer, muted) {
+  let observed;
+  try {
+    // The RPC schedules the AudioParam; require its actual render-thread value.
+    return await until(async () => {
+      const stats = await peer.getStats();
+      observed = { speakers_muted: stats.speakers_muted, speaker_gain: stats.speaker_gain,
+        audio_context_state: stats.audio_context_state };
+      return stats.speakers_muted === muted && stats.speaker_gain === (muted ? 0 : 1) ? stats : null;
+    }, 'speaker_gain_did_not_settle');
+  } catch (error) {
+    error.message += ' ' + JSON.stringify({ expected_muted: muted, observed });
+    throw error;
+  }
+}
+
 function alive(pid, processGroup = false) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   // POSIX signal 0 only probes existence. The negative id addresses the
@@ -80,10 +96,11 @@ async function main() {
   assert.ok(peer.microphoneSettings && typeof peer.microphoneSettings === 'object');
   await peer.stopMicrophone();
   assert.equal((await peer.getStats()).microphone_active, false);
+  phase = 'speaker_gain';
   await peer.setSpeakersMuted(false);
-  assert.equal((await peer.getStats()).speaker_gain, 1);
+  assert.equal((await speakerState(peer, false)).speaker_gain, 1);
   await peer.setSpeakersMuted(true);
-  assert.equal((await peer.getStats()).speaker_gain, 0);
+  assert.equal((await speakerState(peer, true)).speaker_gain, 0);
   phase = 'worker_cleanup';
   await peer.close();
   assert.equal(peer.childClosed, true, 'child close must be observed');
