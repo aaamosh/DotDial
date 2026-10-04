@@ -8,6 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const test = require('node:test');
 const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, BUNDLE_ID } = require('../scripts/package-macos.cjs');
+const { runRequiredStages } = require('../scripts/verify-macos-package.cjs');
 const pkg = { name: 'dotdial', productName: 'DotDial', version: '0.1.0-beta.2', devDependencies: { electron: '44.5.1', '@electron/packager': '20.3.0' } };
 const sha = 'a'.repeat(40);
 
@@ -87,4 +88,24 @@ test('the pinned Packager hook prepares a Node-independent CLI that handles spac
   assert.equal(nodeMode, '1');
   assert.equal(path.resolve(script), path.join(fs.realpathSync(appSource), 'bin', 'dotdial.cjs'));
   assert.deepEqual(args, ['config', 'set', 'dot.displayName', '"quoted name with spaces"']);
+});
+
+test('native verification collects independent failures without relaxing any success gate', async () => {
+  const calls = [], recorded = [], evidence = {};
+  await assert.rejects(runRequiredStages([
+    ['gui', async () => { calls.push('gui'); throw Error('synthetic_capture_failure'); }],
+    ['worker', async () => { calls.push('worker'); }],
+    ['wake', async () => { calls.push('wake'); throw Error('synthetic_decoder_failure'); }],
+    ['dmg', async () => { calls.push('dmg'); }],
+  ], evidence, name => recorded.push(name)), /checks failed: gui, wake/);
+  assert.deepEqual(calls, ['gui', 'worker', 'wake', 'dmg']);
+  assert.deepEqual(recorded, calls);
+  assert.equal(evidence.macOSPackageVerified, false);
+  assert.equal(evidence.stages.gui.status, 'failed');
+  assert.equal(evidence.stages.wake.status, 'failed');
+  assert.equal(evidence.stages.worker.status, 'passed');
+  assert.equal(evidence.stages.dmg.status, 'passed');
+  const passed = {};
+  await runRequiredStages([['required', async () => {}]], passed);
+  assert.equal(passed.macOSPackageVerified, true);
 });

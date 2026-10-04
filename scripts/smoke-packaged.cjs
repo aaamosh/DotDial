@@ -26,7 +26,7 @@ async function capture(window, outputDirectory, filename) {
   await until(() => evaluate(window, `(() => {
     const section = document.querySelector('.settings-section.active');
     return document.fonts?.status !== 'loading' &&
-      (!section || Number(getComputedStyle(section).opacity) >= 0.99);
+      (!section || section.getClientRects().length === 0 || Number(getComputedStyle(section).opacity) >= 0.99);
   })()`), 'packaged_capture_layout_not_ready', 5000);
   const image = await window.webContents.capturePage();
   assert.equal(image.isEmpty(), false, 'packaged window must produce pixels');
