@@ -123,6 +123,7 @@ function verifyLockHelper(lockHelper, temporary, env) {
 
 async function runRequiredStages(stages, evidence, record = () => {}) {
   assert.ok(stages.length > 0, 'package verification requires checks');
+  assert.equal(new Set(stages.map(([name]) => name)).size, stages.length, 'required stage names must be unique');
   const failed = [];
   evidence.stages = {};
   evidence.macOSPackageVerified = false;
@@ -216,6 +217,14 @@ async function main() {
         const initial = JSON.parse(run(launcher, ['config', 'show'], { env }).stdout);
         assert.equal(initial.hash, null);
         assert.equal(initial.config.wakeWord.enabled, false);
+        assert.equal(initial.config.wakeWord.commandsEnabled, false);
+        assert.equal(Object.keys(initial.config.wakeWord.commands).length, 7);
+        assert.equal(initial.config.general.hotkey, 'Command+Shift+Space');
+        const commandSave = JSON.parse(run(launcher, ['config', 'set', 'wakeWord.commands.microphoneOff', '"Disable microphone"'], { env }).stdout);
+        assert.equal(commandSave.saved, true);
+        const commandReadback = JSON.parse(run(launcher, ['config', 'show'], { env }).stdout);
+        assert.equal(commandReadback.config.wakeWord.commands.microphoneOff, 'Disable microphone');
+        assert.equal(commandReadback.config.wakeWord.commandsEnabled, false);
         const save = JSON.parse(run(launcher, ['config', 'set', 'dot.displayName', '"macOS package smoke"'], { env }).stdout);
         assert.equal(save.saved, true);
         const readback = JSON.parse(run(launcher, ['config', 'show'], { env }).stdout);
@@ -320,6 +329,33 @@ async function main() {
           ['exact_phrase', 'passed', true], ['unrelated_speech', 'passed', false],
           ['different_configured_phrase', 'passed', false],
         ]);
+      }],
+      ['native_voice_commands', async () => {
+        // Real native Python and packaged routing; synthetic speech and isolated
+        // dispatch, not hardware or an authenticated account call.
+        const voiceReport = path.join(reportDirectory, 'voice-commands.json');
+        fs.rmSync(voiceReport, { force: true });
+        let emittedReport;
+        try {
+          const result = await runPosixSmoke(executable,
+            [path.join(__dirname, 'smoke-macos-voice.cjs'), packagedSource, wakeData, speechFixtures, voiceReport],
+            { env: { ...guiEnv, ELECTRON_RUN_AS_NODE: '1' }, timeout: 180_000 });
+          evidence.voiceCommandsSupervision = result.supervision;
+          emittedReport = parseJsonLine(result.stdout, 'nativeVoiceCommands');
+        } catch (error) {
+          if (error.supervision) evidence.voiceCommandsSupervision = error.supervision;
+          throw error;
+        } finally {
+          if (fs.existsSync(voiceReport)) evidence.voiceCommands = JSON.parse(fs.readFileSync(voiceReport, 'utf8'));
+        }
+        const voice = evidence.voiceCommands;
+        assert.deepEqual(voice, emittedReport, 'file and stdout voice reports agree');
+        assert.equal(voice.nativeVoiceCommands, 'passed');
+        assert.equal(voice.sourceCommit, manifest.sourceCommit);
+        assert.equal(voice.hostPlatform, 'darwin'); assert.equal(voice.hostArch, process.arch);
+        assert.equal(voice.sourceRoot, packagedSource);
+        assert.equal(voice.cases.length, 12);
+        assert.ok(voice.cases.every(item => item.result === 'passed' && item.decoderReaped && item.captureClosed));
       }],
       ['disk_image', async () => {
         fs.mkdirSync(mount);

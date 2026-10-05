@@ -70,9 +70,9 @@ The build jobs had read-only repository permissions; only the promotion job coul
 write release contents. That completed job has been removed from active CI.
 
 Regular workflows build and verify packages for pull requests, `main` pushes,
-`v*` tags and manual runs, then preserve artifacts and reports. There is no active
-publication path in normal CI: both completed macOS promotion jobs have been
-removed. The original workflows, publishers and regression tests remain available
+`v*` tags and manual runs, then preserve artifacts and reports. Both completed beta.3 macOS promotion jobs have been removed. The separately
+gated beta.4 hands-free publication is described below; normal CI runs cannot
+invoke it. The original workflows, publishers and regression tests remain available
 at their respective released source commits for provenance.
 
 The first promotion downloaded the distribution artifacts from that same workflow
@@ -157,3 +157,19 @@ Complete the physical microphone, real account, TCC, Login Items and minimum-mac
 session checks before promoting this preview to a more general release. Preserve
 the explicit preview classification until that acceptance and the planned Apple
 signing/notarization work are complete.
+
+## macOS beta.4 hands-free preview
+
+The next explicit publication uses the separate tag
+`v0.1.0-beta.4-macos-preview.1` and application version `0.1.0-beta.4`. The
+reviewed main commit's first line must be exactly
+`Publish macOS beta 4 preview with voice commands`. The one-time workflow job
+waits for both architectures and all twelve required package gates, then promotes
+only those same-run artifacts with matching manifests and SHA-256. It does not
+rebuild packages or download Release assets. Earlier previews and Linux beta.4
+are outside its mutation target.
+
+The publisher retains strict draft identity, fixed-tag and no-overwrite checks.
+After successful readback, retire this one-time job and link the new downloads.
+The archived beta.3 publisher remains accessible at its original source; ordinary
+pushes, pull requests and workflow dispatches do not authorize publication.

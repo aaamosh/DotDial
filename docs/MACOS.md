@@ -18,7 +18,7 @@ Login Items, local audio cues and application bundles for both Mac architectures
   hotkeys, sounds and saved replies do not need a system Node or Python install.
 
 Download the published **Apple Silicon or Intel DMG** from the
-[macOS Preview 2 release](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2).
+[macOS beta.4 hands-free preview](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.4-macos-preview.1).
 The release also includes application ZIPs, source manifests and one combined
 `SHA256SUMS` file. Its notes identify the exact source revision and native CI run.
 
@@ -136,6 +136,46 @@ When enabled, wake continues listening locally during calls even if transmission
 to the dot is muted. The wake phrase can re-enable microphone and speakers. Turn
 wake off and save if you do not want local listening. See [Privacy](PRIVACY.md).
 
+## Hands-free call commands (beta.4)
+
+The beta.4 Mac preview contains the same seven configurable commands as Linux
+beta.4. After local wake setup, enable **Hands-free call commands** in
+**Settings → Voice** and save. This option is off by default, including upgrades.
+
+| Action | Default English phrase |
+| --- | --- |
+| Microphone off | Microphone off |
+| Microphone on | Microphone on |
+| Speakers off | Radio silence |
+| Speakers on | Sound on please |
+| Hang up | Hang up |
+| Play saved replies | Replay messages |
+| Stop playback | Stop the replay |
+
+Edit the phrases in Voice settings or `wakeWord.commands`. Save applies them
+while a call is active: only the local recognizer is replaced, not the call.
+Each phrase has two to six English words. Overlap with the wake phrase or another
+command is rejected. The normal wake phrase still starts or reactivates a call.
+The selected Mac microphone is shared with the existing Electron capture path;
+Python receives audio on stdin and does not open another microphone.
+
+Microphone and speaker choices are independent. Speaker mute also stops replay;
+voice hangup cancels unfinished actions. The listener stays available during
+idle saved-reply playback so **Stop the replay** works. A bare wake detection is
+suppressed during that playback and its short decoding tail to avoid placing an
+accidental call. Disabling commands leaves ordinary wake behavior available.
+
+Call microphone mute stops transmission, not local wake listening. Turn off wake
+and save to stop local listening. Speech before mute takes effect may reach the
+dot, and loudspeaker audio may trigger commands through the microphone. A headset
+and distinct phrases reduce that risk. No new cloud recognition or audio storage
+is added by these commands.
+
+The older [beta.3 Preview 2](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2)
+does not contain these commands. The new preview retains its silent-sink capture
+fix and all original native acceptance gates, and adds a twelfth required gate
+for command recognition and routing.
+
 ## Start at login
 
 Enable **Start at login** in the installed application. DotDial uses macOS Login
@@ -188,9 +228,13 @@ Config reports and doctor do not open a call or capture audio.
 
 Quit DotDial before replacing the `.app`. Keep the last working installer until
 you have checked the new version. Replace only the application, then reopen it;
-settings and saved replies remain in Application Support. This port does not
-introduce a configuration-schema migration. If a later release introduces one,
-follow that release's migration and rollback instructions before downgrading.
+settings and saved replies remain in Application Support. Beta.4 adds
+`wakeWord.commandsEnabled` and `wakeWord.commands` within configuration version 1.
+Missing fields receive opt-out defaults on upgrade. Before upgrading, preserve a
+copy of `config.json`: after saving beta.4 settings, beta.3's strict parser rejects
+these new fields. To roll back, restore the pre-upgrade config along with the old
+app, without replacing or deleting `data/` or `recordings/`. Alternatively remove
+only those two keys from a backed-up copy of the config before using beta.3.
 
 To uninstall, turn off Start at login, quit DotDial and move the application to the
 Trash. User data remains. If you also want to delete the browser session, model,
@@ -247,7 +291,7 @@ valid signed entitlements do not establish a TCC permission grant, Developer ID
 signing or notarization.
 Synthetic checks do not establish that real ChatGPT authentication, a microphone
 permission prompt, physical audio hardware or Login Items will work on every Mac.
-Preview 2 retains these remaining acceptance gaps.
+The beta.4 hands-free preview retains these remaining acceptance gaps.
 Before promoting it beyond preview, test those with an actual user session on the
 minimum supported macOS and a current version. Do not put account data or
 recordings in CI.
@@ -255,3 +299,20 @@ recordings in CI.
 The application icon is derived from `src/assets/dotdial-macos.svg`, using the
 existing DotDial mark. The reviewed ICNS file is included in source and pinned by
 the public-source scanner; icon generation tools are not needed to build the app.
+
+## Native voice-command acceptance
+
+The required `native_voice_commands` gate runs the packaged listener, native
+managed Python, `WakeManager` and `VoiceCommands` through twelve speech cases.
+All seven defaults must produce exactly the expected command and dispatch,
+without extra wakes. Controls also cover the wake phrase with commands enabled,
+unrelated speech, disabled commands, an edited phrase and the old phrase after
+replacement. Speech is generated by the already-built, pinned Flite SLT voice.
+The report and WAV provenance are preserved as `voice-commands.json` and
+`voice-fixtures/` in the native QA artifact.
+
+This gate injects synthetic PCM at the capture callback and uses an isolated call
+state and dispatcher. The separate `native_wake_pipeline` gate exercises actual
+Electron capture and the bounded PCM pipe. Neither is an authenticated account
+call or physical-device test. Additional regressions check live phrase edits,
+stale-event rejection, selected-input preservation and command opt-out on Mac.

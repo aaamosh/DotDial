@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish macOS beta 4 preview with voice commands') && github.sha || 'checks' }}
   cancel-in-progress: true
 
 jobs:
@@ -101,3 +101,38 @@ jobs:
           path: build/macos-qa/${{ matrix.arch }}/
           if-no-files-found: warn
           retention-days: 30
+
+  publish-voice-preview:
+    name: Publish the authorized macOS hands-free preview
+    needs: macos
+    # Only the explicit owner-authorized publication commit can write a release.
+    if: >-
+      github.event_name == 'push' && github.repository == 'aaamosh/DotDial' &&
+      github.ref == 'refs/heads/main' && github.event.head_commit.id == github.sha &&
+      (github.event.head_commit.message == 'Publish macOS beta 4 preview with voice commands' ||
+      startsWith(github.event.head_commit.message, format('{0}{1}', 'Publish macOS beta 4 preview with voice commands', fromJSON('"\n"'))))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: dotdial-macos-arm64-preview-${{ github.sha }}
+          path: build/macos-release/arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: dotdial-macos-x64-preview-${{ github.sha }}
+          path: build/macos-release/x64
+      - name: Publish only the exact native artifacts after all acceptance gates
+        run: node scripts/publish-macos-preview.cjs
+        env:
+          GH_TOKEN: ${{ github.token }}

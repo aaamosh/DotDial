@@ -363,6 +363,7 @@ async function run() {
     assert.ok(fs.realpathSync(app.getPath('userData')).startsWith(demoRoot + path.sep));
     assert.equal(original.config.dot.url, '', 'demo must not use an account');
     assert.equal(original.config.wakeWord.enabled, false, 'demo must not start a wake listener');
+    assert.equal(original.config.wakeWord.commandsEnabled, false, 'commands require explicit opt-in');
     const statusPath = path.join(demoRoot, 'state', 'status.json');
     const readStatus = () => JSON.parse(fs.readFileSync(statusPath, 'utf8'));
     assert.equal(readStatus().demo, true);
@@ -370,6 +371,10 @@ async function run() {
     await evaluate(settings, `(() => {
       const input = document.querySelector('#dot-display-name');
       input.value = 'Packaged smoke'; input.dispatchEvent(new Event('input', { bubbles: true }));
+      const toggle = document.querySelector('#wake-commands-enabled');
+      toggle.checked = true; toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      const phrase = document.querySelector('#wake-command-microphone-off');
+      phrase.value = 'Quiet microphone'; phrase.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('#top-save').click();
     })()`);
     await until(() => JSON.parse(fs.readFileSync(original.path, 'utf8')).dot.displayName === 'Packaged smoke',
@@ -377,6 +382,10 @@ async function run() {
     const saved = await evaluate(settings, 'window.dotdial.readConfig()');
     assert.notEqual(saved.hash, original.hash);
     assert.equal(saved.config.dot.displayName, 'Packaged smoke');
+    assert.equal(saved.config.wakeWord.commandsEnabled, true);
+    assert.equal(saved.config.wakeWord.commands.microphoneOff, 'Quiet microphone');
+    assert.equal(Object.keys(saved.config.wakeWord.commands).length, 7);
+    assert.equal(saved.config.wakeWord.enabled, false, 'editing commands must not start local capture');
     const reloaded = new Promise(resolve => settings.webContents.once('did-finish-load', resolve));
     settings.webContents.reload();
     await reloaded;
@@ -387,6 +396,26 @@ async function run() {
       'packaged_settings_did_not_survive_reload');
     assert.deepEqual((await evaluate(settings, 'window.dotdial.readConfig()')).config, saved.config);
     const settingsCapture = await capture(settings, outputDirectory, 'settings.png');
+    await evaluate(settings, 'document.querySelector(".nav-item[data-section=voice]").click()');
+    assert.equal(await evaluate(settings, 'document.querySelector("#wake-commands-enabled").checked'), true);
+    assert.equal(await evaluate(settings, 'document.querySelector("#wake-command-microphone-off").value'), 'Quiet microphone');
+    assert.equal(await evaluate(settings, 'document.querySelector("#wake-command-microphone-off").disabled'), true,
+      'wake off keeps commands unavailable even when their opt-in is saved');
+    // Exercise form dependencies without saving wake on or opening a microphone.
+    for (const [wakeEnabled, commandsEnabled, disabled] of [[true, true, false], [true, false, true], [false, true, true]]) {
+      await evaluate(settings, `(() => {
+        for (const [id, checked] of [['wake-enabled', ${wakeEnabled}], ['wake-commands-enabled', ${commandsEnabled}]]) {
+          const input = document.getElementById(id);
+          input.checked = checked; input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })()`);
+      const fields = await evaluate(settings, `Array.from(document.querySelectorAll('#wake-command-fields input')).map(input => input.disabled)`);
+      assert.equal(fields.length, 7);
+      assert.ok(fields.every(value => value === disabled), 'all seven command fields follow both toggles');
+    }
+    assert.deepEqual((await evaluate(settings, 'window.dotdial.readConfig()')).config, saved.config,
+      'unsaved dependency checks must not enable local listening on disk');
+    const voiceSettingsCapture = await capture(settings, outputDirectory, 'voice-settings.png');
 
     phase = 'panel';
     await evaluate(settings, `(() => {
@@ -428,7 +457,7 @@ async function run() {
     assert.equal(BrowserWindow.getAllWindows().some(window => /^https?:/.test(window.webContents.getURL())), false,
       'demo smoke must not open account or other network pages');
     phase = 'quit';
-    fs.writeSync(1, JSON.stringify({ packagedSmoke: 'passed', result: 'passed', platform: process.platform,
+    fs.writeSync(1, JSON.stringify({ packagedSmoke: 'passed', voiceControlsPersisted: true, voiceSettingsCapture, result: 'passed', platform: process.platform,
       arch: process.arch, version: app.getVersion(), electron: process.versions.electron,
       chromium: process.versions.chrome, packaged: app.isPackaged, elapsed_ms: Date.now() - started,
       software_rendering_requested: process.argv.includes('--disable-gpu'),
