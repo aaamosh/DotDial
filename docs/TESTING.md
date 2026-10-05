@@ -19,6 +19,27 @@ python3 -m py_compile scripts/setup-wake.py src/wake/listener.py \
 These checks use local fixtures. Do not add account credentials, live calls or
 physical audio capture to CI.
 
+## GitHub Actions
+
+Both workflows run for pull requests, pushes to `main`, version tags matching
+`v*`, and manual runs from the Actions tab. Pull-request checks use GitHub's
+proposed merge commit, covering the changes together with the target branch.
+The Linux workflow runs the source suite and verifies Linux packages. The macOS
+workflow runs the same source suite and every native package gate on both
+Apple Silicon and Intel.
+
+A push to a feature branch with an open pull request gets one Linux workflow and
+one macOS workflow through the pull-request event. It does not launch a second
+copy through the push event. For a branch without a pull request, open a draft
+pull request or request a manual run. Newer runs cancel older runs only for the
+same workflow, event and ref; a manual run does not cancel an automatic run.
+
+These workflows preserve build artifacts and reports. They do not publish
+GitHub releases. The completed one-time publisher for the first macOS preview
+is retained in the [released source](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/.github/workflows/macos.yml),
+and its script and regression tests remain in the repository. Removing that job
+from active CI does not change the public tag or released files.
+
 ## Linux desktop integration
 
 `scripts/run-linux-integration.py` runs the installed application and source media

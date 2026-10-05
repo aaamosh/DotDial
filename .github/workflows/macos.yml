@@ -2,6 +2,8 @@ name: macOS preview packages
 
 on:
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -9,8 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Later ordinary pushes must not cancel the explicitly requested publication.
-  group: macos-preview-${{ github.ref }}-${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Publish macOS preview 1 with bundled runtime notices') && github.sha || 'checks' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -100,43 +101,3 @@ jobs:
           path: build/macos-qa/${{ matrix.arch }}/
           if-no-files-found: warn
           retention-days: 30
-
-  publish-preview-1:
-    name: Publish the authorized first macOS preview
-    needs: macos
-    # This exact first-line marker is the owner's one-time publication request.
-    # Ordinary pushes, pull requests, forks and manual dispatches cannot publish.
-    if: >-
-      github.event_name == 'push' && github.repository == 'aaamosh/DotDial' &&
-      github.ref == 'refs/heads/feat/macos' && github.event.head_commit.id == github.sha &&
-      (github.event.head_commit.message == 'Publish macOS preview 1 with bundled runtime notices' ||
-      startsWith(github.event.head_commit.message, format('{0}{1}', 'Publish macOS preview 1 with bundled runtime notices', fromJSON('"\n"'))))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - name: Check out the exact tested source and release notes
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Set up the pinned publisher runtime
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.12.0
-      - name: Download only this run's verified Apple Silicon distribution
-        uses: actions/download-artifact@v4
-        with:
-          name: dotdial-macos-arm64-preview-${{ github.sha }}
-          path: build/macos-release/arm64
-      - name: Download only this run's verified Intel distribution
-        uses: actions/download-artifact@v4
-        with:
-          name: dotdial-macos-x64-preview-${{ github.sha }}
-          path: build/macos-release/x64
-      - name: Validate both distributions and publish the complete prerelease
-        run: node scripts/publish-macos-preview.cjs
-        env:
-          GH_TOKEN: ${{ github.token }}

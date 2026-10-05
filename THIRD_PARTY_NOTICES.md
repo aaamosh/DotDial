@@ -33,3 +33,9 @@ license notices with redistributed test tooling or fixture artifacts.
 `src/sounds/calling.wav` is a bit-for-bit copy of the full recorded 14.4 kbps modem negotiation `14400.WAV` by Ektoras Karagiannis (1997). `connected.wav` is a 0.30-second excerpt from the same recording (approximately 4.75–5.05 seconds). Internet Archive's item metadata declares the source CC0 1.0: [source item](https://archive.org/details/14400_201912), [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). `telephone.wav` preserves the former project telephone-style calling cue, `activated.wav` preserves the former connected cue, and `ended.wav` remains unchanged; these project-owned cues are distributed under the MIT license.
 
 The original [WAV download](https://archive.org/download/14400_201912/14400.WAV) has SHA-256 `0359ba1636107f1ee5cef6c87c2293d90391dad3580f3a51834a37ac44ba14ce`. It contains mono 16-bit PCM at 11,025 Hz. The connected excerpt copies samples 52,370 through 55,675 without gain changes or resampling.
+
+## Launch media
+
+The Linux/macOS platform card in `docs/media/dotdial-platforms-card.png` and its editable SVG use original project typography/layout and the [DotDial icon from ce7c1998](https://github.com/aaamosh/DotDial/blob/ce7c19980976aa1719d2a4c156b377b4c9ac0a7b/src/assets/dotdial.svg), under the project's [MIT License](LICENSE). No third-party screenshot, private account data or live-call recording is included. PNG SHA-256: `e8203d0aa7877db0dbbfbc5bd7b1a0300286f47d648fbb27a4e0ae97f9bd641b`. SVG SHA-256: `f1422caa44210e862bb0ca1215ce493dfb6a29bbcdd8dc8264ed3d46ab0f9ee1`.
+
+The original Linux share card and video use project-owned synthetic screenshots under MIT. The video's modem recording retains the CC0 source and attribution documented above. [Media credits](docs/media/README.md) contain their exact checksums, composition notes and alt text.

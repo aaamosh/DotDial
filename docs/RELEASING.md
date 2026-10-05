@@ -61,20 +61,25 @@ identify the exact source commit. This is an ad-hoc signed prerelease, without
 Developer ID signing or notarization. The [release notes](releases/macos-preview-1.md)
 explicitly describe the remaining manual acceptance checks.
 
-The macOS workflow has a narrow, one-time promotion gate: a push to this repository's
+The [workflow at the released source](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/.github/workflows/macos.yml)
+used a narrow, one-time promotion gate: a push to this repository's
 `feat/macos` branch whose commit-message first line is exactly
-`Publish macOS preview 1 with bundled runtime notices`. Ordinary pushes and pull
-requests only build and verify packages. Promotion depends on both native matrix
+`Publish macOS preview 1 with bundled runtime notices`. Promotion depended on both native matrix
 jobs passing every required stage in [the testing guide](TESTING.md#native-macos-acceptance).
-The build jobs retain read-only repository permissions; only the promotion job can
-write release contents.
+The build jobs had read-only repository permissions; only the promotion job could
+write release contents. That completed job has been removed from active CI.
 
-Promotion downloads the distribution artifacts from that same workflow run,
-checks their complete file inventories, manifests and SHA-256 values, and prepares
-a draft release targeting that exact commit. It attaches both DMGs, both app ZIPs,
-both manifests and one combined `SHA256SUMS`. It verifies the uploaded assets before
-publishing as a prerelease without selecting it as the latest stable release.
-Existing mismatched tags or assets fail the operation instead of being overwritten.
+Current workflows build and verify packages for pull requests, `main` pushes,
+`v*` tags and manual runs, then preserve artifacts and reports. They do not publish
+releases or change existing release assets. The original publisher script and its
+regression tests remain in the repository for provenance.
+
+The first promotion downloaded the distribution artifacts from that same workflow
+run, checked their complete file inventories, manifests and SHA-256 values, and
+prepared a draft release targeting that exact commit. It attached both DMGs, both
+app ZIPs, both manifests and one combined `SHA256SUMS`, then verified the uploaded
+assets before publishing as a prerelease without selecting it as the latest stable
+release. The publisher rejects mismatched tags or assets instead of overwriting them.
 
 Both downloaded formats must contain Electron's `LICENSE` and
 `LICENSES.chromium.html` under `DotDial.app/Contents/Resources/electron-licenses/`.
