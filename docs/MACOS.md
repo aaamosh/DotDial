@@ -6,7 +6,9 @@ Login Items, local audio cues and application bundles for both Mac architectures
 
 ## Requirements and downloads
 
-- macOS 13 Ventura or newer, as required by the pinned Electron 44.5.1 runtime.
+- macOS 13 Ventura or newer is the binary deployment target of the pinned
+  Electron 44.5.1 runtime. Native CI uses macOS 15; Ventura runtime acceptance
+  remains outstanding.
 - Apple Silicon (`arm64`, M-series chips) or Intel (`x64`). Choose the matching
   download in **Apple menu → About This Mac**; Rosetta is not needed for the native
   Apple Silicon build.
@@ -16,9 +18,15 @@ Login Items, local audio cues and application bundles for both Mac architectures
   hotkeys, sounds and saved replies do not need a system Node or Python install.
 
 Download the published **Apple Silicon or Intel DMG** from the
-[first macOS preview release](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1).
+[macOS Preview 2 release](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2).
 The release also includes application ZIPs, source manifests and one combined
 `SHA256SUMS` file. Its notes identify the exact source revision and native CI run.
+
+The earlier [Preview 1 release](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1)
+remains unchanged at source revision
+[`54889c5b`](https://github.com/aaamosh/DotDial/commit/54889c5b04fe3dc32b79084d56bbec6e187a53de).
+Use its [pinned guide](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/docs/MACOS.md)
+when working with that older download; it does not contain the Preview 2 fix.
 
 Development previews are produced by the [macOS workflow](../.github/workflows/macos.yml).
 For an unpublished revision, open its successful run and download the
@@ -33,6 +41,30 @@ Developer ID certificate and are **not notarized**. The signature is checked dur
 packaging; it does not establish publisher identity or make Gatekeeper approval
 automatic. Use only an installer from the intended repository/run and compare its
 SHA-256 with the accompanying checksums.
+
+## Preview 2 wake-capture change
+
+Offline wake listening only needs microphone input. Preview 2 gives its
+`AudioContext` a silent sink and requests a **100 ms latency hint**:
+`new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' }, latencyHint: 0.1 })`.
+The silent sink removes an unnecessary dependency on the speaker output clock.
+Chromium chooses the actual callback buffer from the device parameters; the
+latency hint is a request, not a guarantee of an exact buffer duration or call
+latency. Native tests had observed the audio clock stalling during capture while
+the renderer and IPC remained responsive. The exact cause inside Chromium or
+CoreAudio has not been established; this change does not claim to resolve every
+possible audio-device problem.
+
+The packaged native PCM test now performs **four pause/resume cycles**. Each
+resumed capture must still deliver **25 acknowledged PCM blocks within seven
+seconds**; that deadline has not been relaxed. It also checks established-stream
+cadence: the arrival interval from block 1 to block 25 must be **2.4 seconds ±500
+ms**, matching the 24 intervals of 100 ms PCM. Microphone acquisition is excluded
+from this cadence measurement. A stream that meets the block count but runs too
+slowly still fails. See the [testing guide](TESTING.md#native-macos-acceptance)
+for the full checks and the [Preview 2 release notes](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2)
+for results tied to its source revision. These tests use synthetic audio and do not
+replace physical microphone, TCC permission or real-account call acceptance.
 
 ## Install and make the first call
 
@@ -215,7 +247,7 @@ valid signed entitlements do not establish a TCC permission grant, Developer ID
 signing or notarization.
 Synthetic checks do not establish that real ChatGPT authentication, a microphone
 permission prompt, physical audio hardware or Login Items will work on every Mac.
-The first public prerelease explicitly carries these remaining acceptance gaps.
+Preview 2 retains these remaining acceptance gaps.
 Before promoting it beyond preview, test those with an actual user session on the
 minimum supported macOS and a current version. Do not put account data or
 recordings in CI.

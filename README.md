@@ -4,15 +4,15 @@
 
 **Say "Hey Dot." Leave the keyboard behind.**
 
-[![CI](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml/badge.svg)](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-7de0bb)](LICENSE) ![Linux x64 beta](https://img.shields.io/badge/Linux-x64_beta-91b7d5) [![macOS preview](https://img.shields.io/badge/macOS-Apple_Silicon_%26_Intel_preview-91b7d5)](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1)
+[![CI](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml/badge.svg)](https://github.com/aaamosh/DotDial/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-7de0bb)](LICENSE) ![Linux x64 beta](https://img.shields.io/badge/Linux-x64_beta-91b7d5) [![macOS preview](https://img.shields.io/badge/macOS-Apple_Silicon_%26_Intel_preview-91b7d5)](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2)
 
 | Platform | Release | Downloads |
 | --- | --- | --- |
 | Linux x86_64 | [0.1.0-beta.3](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3) | [Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/dotdial_0.1.0-beta.3_amd64.deb) · [Linux archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/DotDial-0.1.0-beta.3-linux-x64.tar.gz) |
-| macOS, Apple Silicon (`arm64`) | [Preview 1](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1) | [DMG](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.1/DotDial-0.1.0-beta.3-preview-54889c5b-macos-arm64.dmg) · [App ZIP](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.1/DotDial-0.1.0-beta.3-preview-54889c5b-macos-arm64.app.zip) |
-| macOS, Intel (`x64`) | [Preview 1](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1) | [DMG](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.1/DotDial-0.1.0-beta.3-preview-54889c5b-macos-x64.dmg) · [App ZIP](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.1/DotDial-0.1.0-beta.3-preview-54889c5b-macos-x64.app.zip) |
+| macOS, Apple Silicon (`arm64`) | [Preview 2](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) | [Choose the `arm64` DMG or app ZIP in release assets](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) |
+| macOS, Intel (`x64`) | [Preview 2](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) | [Choose the `x64` DMG or app ZIP in release assets](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) |
 
-SHA-256 checksums: [Linux](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/SHA256SUMS) · [macOS](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.1/SHA256SUMS). The macOS builds are early previews with ad-hoc signatures, without Apple Developer ID signing or notarization. See the [macOS installation notes](#macos-preview) before downloading.
+SHA-256 checksums: [Linux](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/SHA256SUMS) · [macOS: `SHA256SUMS` in release assets](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2). The macOS builds are early previews with ad-hoc signatures, without Apple Developer ID signing or notarization. See the [macOS installation notes](#macos-preview) before downloading.
 
 Cooking, stretching, or thinking out loud on the sofa? Call your ChatGPT dot without reaching for your laptop. Once voice activation is set up, say **"Hey Dot"** from wherever your microphone can hear you. DotDial starts the call; you keep doing what you were doing.
 
@@ -28,7 +28,7 @@ DotDial lives in your Linux tray or, with the new macOS preview, your Mac's menu
 - **Three buttons, right where you left them.** A small floating panel gives you microphone mute, speaker mute, and hang up. Drag it where it suits you; it remembers its position next time.
 - **Easy for you. Easy for your agent.** Use the settings window or let your coding agent edit one ordinary [JSON file](docs/AGENT.md) with its usual tools. The local CLI can also check call status, call, hang up, mute, and replay missed replies.
 
-Wake-word support is off by default. [Set it up once](#optional-wake-word), then leave DotDial running in the tray or menu bar. Recognition happens on your device; how far away you can speak depends on your microphone and the room. While enabled, the recognizer also listens during calls with microphone transmission muted. See the [Linux privacy guide](docs/PRIVACY.md) or the [macOS preview privacy guide](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/docs/PRIVACY.md) for details.
+Wake-word support is off by default. [Set it up once](#optional-wake-word), then leave DotDial running in the tray or menu bar. Recognition happens on your device; how far away you can speak depends on your microphone and the room. While enabled, the recognizer also listens during calls with microphone transmission muted. See the [privacy guide](docs/PRIVACY.md) or the [macOS Preview 2 privacy guide](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3-macos-preview.2/docs/PRIVACY.md) for details.
 
 ## Your AI has a dial-up phase
 
@@ -40,7 +40,7 @@ Love the nostalgia? Leave it on. Prefer something else? In **Settings → Voice*
 
 ## A small app for the way you talk
 
-The screenshots below and the 18-second video use the Linux synthetic demo. They show no real account or conversation and are not a recording of a macOS call. The new share card describes availability on both platforms.
+The screenshots below and the 18-second video use the Linux synthetic demo. They show no real account or conversation and are not a recording of a macOS call. The platform share card was prepared for Preview 1; it describes availability on both platforms and is not a Preview 2 demonstration.
 
 [Watch the 18-second Linux UI preview](docs/media/dotdial-preview-18s.mp4) · [Download the Linux and macOS share card](docs/media/dotdial-platforms-card.png) · [Media credits](docs/media/README.md)
 
@@ -60,13 +60,17 @@ For an upgrade, choose **Quit** in the tray or menu bar before installing, then 
 
 ### macOS preview
 
+**Preview 2** uses silent output and requests a 100 ms audio latency hint for offline wake capture, removing an unnecessary dependency on the speaker output clock. Native packaged tests now verify steady audio delivery across four pause/resume cycles. See the [wake-capture change and its limits](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3-macos-preview.2/docs/MACOS.md#preview-2-wake-capture-change).
+
 Choose **Apple Silicon (`arm64`)** or **Intel (`x64`)** in the download table. Open the DMG, drag **DotDial.app** into **Applications**, eject the image, then launch the installed copy. The ZIP contains the same application as an alternative. Ordinary calls and the bundled CLI need no separate Node or Python installation.
 
 These builds are **ad-hoc signed, without Apple Developer ID signing or notarization**. If the first launch is blocked, follow [Apple's instructions](https://support.apple.com/en-us/102445) for **System Settings → Privacy & Security → Open Anyway**. DotDial does not disable Gatekeeper. Grant microphone access when prompted. Start a call from the menu bar or use the default **Command–Shift–Space** shortcut.
 
-The minimum binary deployment target is **macOS 13 Ventura**. Both architectures passed [native build and package checks on macOS 15](https://github.com/aaamosh/DotDial/actions/runs/37298082128); Ventura runtime behavior, physical audio devices, real permission prompts, sleep/unplug recovery and real ChatGPT account calls still need hands-on acceptance. **Start at login may remain unavailable** with this preview's signature. Treat this as an early public preview.
+The minimum binary deployment target is **macOS 13 Ventura**. Native build and package checks use macOS 15 on both architectures; the [Preview 2 release notes](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) identify the results for that exact source. Ventura runtime behavior, physical audio devices, real permission prompts, sleep/unplug recovery and real ChatGPT account calls still need hands-on acceptance. **Start at login may remain unavailable** with this preview's signature. Treat this as an early public preview.
 
-Read the [macOS installation, wake setup, local files and CLI guide](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/docs/MACOS.md) for the exact published source. The [preview release notes](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1) include build manifests and the remaining acceptance checks.
+Read the [macOS installation, wake setup, local files and CLI guide](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3-macos-preview.2/docs/MACOS.md) for Preview 2. Its [release notes](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) include build manifests and the remaining acceptance checks.
+
+[Preview 1](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1), built from [`54889c5b`](https://github.com/aaamosh/DotDial/commit/54889c5b04fe3dc32b79084d56bbec6e187a53de), remains available for comparison or rollback. Its binaries are unchanged and do not include the Preview 2 wake-capture fix.
 
 ### Debian or Ubuntu
 
@@ -91,7 +95,7 @@ Open **Settings**, paste your dot profile URL, and choose **Save settings**. Sig
 
 ### Optional wake word
 
-On macOS, follow the [published preview's wake setup guide](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/docs/MACOS.md#optional-local-wake-word). Wake requires Python **3.10–3.13** and the optional English model; Python 3.14 is not supported by this dependency set. macOS captures wake audio through the app's Electron audio layer. The instructions below are for **Linux**.
+On macOS, follow the [Preview 2 wake setup guide](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3-macos-preview.2/docs/MACOS.md#optional-local-wake-word). Wake requires Python **3.10–3.13** and the optional English model; Python 3.14 is not supported by this dependency set. macOS captures wake audio through the app's Electron audio layer. The instructions below are for **Linux**.
 
 Wake-word support is disabled by default. To enable it, open **Settings → Voice**, enable the wake word, choose **Save changes**, then choose **Install or check wake-word support**. Saving enables listening after the local model and dependencies are installed; installation alone does not turn wake listening on. The tray indicates when local listening is active. Under **Audio devices**, you can choose a wake input separately from the call microphone; scanning reads PortAudio device names without opening a microphone stream. Setup downloads the pinned Python dependencies and English model only when requested. Setup requires Python 3, a virtual-environment package, and PortAudio; on Debian/Ubuntu, install them with:
 
@@ -103,7 +107,7 @@ The example phrase is **Hey Dot**. Phrase and sensitivity changes apply immediat
 
 ## Run from source
 
-The source tree supports Linux and macOS. See the [macOS source-build guide](docs/MACOS.md#build-and-verify-from-source) for native packaging and verification. The published macOS Preview 1 was built from revision [`54889c5b04fe3dc32b79084d56bbec6e187a53de`](https://github.com/aaamosh/DotDial/commit/54889c5b04fe3dc32b79084d56bbec6e187a53de); later source changes are not part of those downloads.
+The source tree supports Linux and macOS. See the [macOS source-build guide](docs/MACOS.md#build-and-verify-from-source) for native packaging and verification. To reproduce Preview 2, use its [release tag and source guide](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3-macos-preview.2/docs/MACOS.md#build-and-verify-from-source); subsequent source changes do not update released downloads.
 
 Requirements: Node.js 22.12 or later, npm, and a Linux x86_64 or macOS 13+ desktop session.
 Linux also requires `flock` from util-linux.
@@ -132,7 +136,7 @@ DotDial keeps settings, its sign-in profile, recordings, and diagnostics on your
 
 The package manager removes the Debian/Ubuntu install with `sudo apt remove dotdial`. To remove an archive install, quit DotDial and remove the paths created by the installer: `/opt/dotdial`, `/usr/bin/dotdial`, `/usr/share/applications/dotdial.desktop`, and `/usr/share/icons/hicolor/scalable/apps/dotdial.svg`. Uninstalling does not erase user data or recordings. See [Privacy](docs/PRIVACY.md) for retention and deletion details, and the [configuration guide](docs/AGENT.md) for paths, settings, and the local CLI.
 
-On **macOS**, settings and saved replies live under `~/Library/Application Support/DotDial/`, and cache under `~/Library/Caches/DotDial/`. To remove the app, turn off Start at login, quit DotDial and move the application to Trash. User data remains. Follow the [macOS update, rollback and removal guide](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/docs/MACOS.md#update-rollback-and-remove) for the exact paths and optional data deletion.
+On **macOS**, settings and saved replies live under `~/Library/Application Support/DotDial/`, and cache under `~/Library/Caches/DotDial/`. To remove the app, turn off Start at login, quit DotDial and move the application to Trash. User data remains. Follow the [macOS update, rollback and removal guide](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3-macos-preview.2/docs/MACOS.md#update-rollback-and-remove) for the exact paths and optional data deletion.
 
 ## Contributing and security
 

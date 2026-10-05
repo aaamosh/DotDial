@@ -69,10 +69,11 @@ jobs passing every required stage in [the testing guide](TESTING.md#native-macos
 The build jobs had read-only repository permissions; only the promotion job could
 write release contents. That completed job has been removed from active CI.
 
-Current workflows build and verify packages for pull requests, `main` pushes,
-`v*` tags and manual runs, then preserve artifacts and reports. They do not publish
-releases or change existing release assets. The original publisher script and its
-regression tests remain in the repository for provenance.
+Regular workflows build and verify packages for pull requests, `main` pushes,
+`v*` tags and manual runs, then preserve artifacts and reports. Preview 2's
+explicit promotion gate below is the only active publication path. The original
+Preview 1 publisher and regression tests remain available at its released source
+commit for provenance.
 
 The first promotion downloaded the distribution artifacts from that same workflow
 run, checked their complete file inventories, manifests and SHA-256 values, and
@@ -80,6 +81,59 @@ prepared a draft release targeting that exact commit. It attached both DMGs, bot
 app ZIPs, both manifests and one combined `SHA256SUMS`, then verified the uploaded
 assets before publishing as a prerelease without selecting it as the latest stable
 release. The publisher rejects mismatched tags or assets instead of overwriting them.
+
+## Second macOS preview publication
+
+Preview 2 uses the separate tag `v0.1.0-beta.3-macos-preview.2` and retains the
+application version `0.1.0-beta.3`. Its [release notes](releases/macos-preview-2.md)
+describe local wake capture's silent audio sink and requested 100 ms Web Audio
+latency hint. The release candidate must use both `sinkId: { type: 'none' }` and
+`latencyHint: 0.1`. Preserve Preview 1's tag, release notes and downloaded files;
+this publisher addresses only Preview 2.
+
+After the runtime correction passes native acceptance and is merged, prepare a
+reviewed release commit on `main` whose first line is exactly:
+
+```text
+Publish macOS preview 2 with silent wake audio sink
+```
+
+That push must come from `aaamosh/DotDial`. The `publish-preview-2` job waits for
+both native matrix jobs to pass, including the unit suite, public-source audit
+and every required package gate. It downloads only that same run's Apple Silicon
+and Intel distribution artifacts. The build jobs keep read-only permissions;
+only the promotion job has `contents: write` and `actions: read`, using the
+workflow-scoped token. No project dependencies are installed and no application
+build runs in the write job.
+
+Native pipeline acceptance retains the 25 acknowledged PCM blocks within seven
+seconds requirement for initial capture and four pause/resume cycles. It also
+requires a first-to-last span of 2400 ms, within 500 ms, for those 25 consecutive
+100 ms blocks. The restart check uses 10 blocks with a 900 ms expected span and
+the same tolerance. Acquisition time is excluded from these cadence measurements.
+Both architectures must satisfy these checks in the release commit's native run.
+
+The publisher requires the exact source SHA in both manifests, a clean source
+tree, the expected preview/signature metadata, exactly three distribution files
+per architecture and matching SHA-256 checksums. It creates a draft targeting
+the exact release commit, uploads those six files and one combined `SHA256SUMS`,
+and checks GitHub's uploaded sizes and digests before publishing the prerelease
+with `--latest=false`. It never replaces a mismatched tag or existing asset.
+
+Ordinary pushes, tag pushes, pull requests and manual dispatches cannot invoke
+promotion. The publication source SHA has a separate concurrency group so a
+later normal `main` push cannot cancel it partway through. After independent
+release/tag/asset readback succeeds, remove the completed one-time job and restore
+the ordinary concurrency group along with the final download-link updates.
+
+If upload is interrupted, rerun only the failed promotion job using the same
+run's artifacts. An unchanged draft owned by that run resumes missing uploads;
+matching published files are verified without writes. Rebuilding the packages
+can produce different bytes and must not be used to overwrite an existing draft
+or published release. Keep the exact source, run and checksum evidence with the
+release verification record.
+
+## macOS distribution acceptance
 
 Both downloaded formats must contain Electron's `LICENSE` and
 `LICENSES.chromium.html` under `DotDial.app/Contents/Resources/electron-licenses/`.

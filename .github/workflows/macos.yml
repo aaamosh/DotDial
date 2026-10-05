@@ -11,7 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # Later ordinary main pushes must not interrupt this exact publication run.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish macOS preview 2 with silent wake audio sink') && github.sha || 'checks' }}
   cancel-in-progress: true
 
 jobs:
@@ -101,3 +102,43 @@ jobs:
           path: build/macos-qa/${{ matrix.arch }}/
           if-no-files-found: warn
           retention-days: 30
+
+  publish-preview-2:
+    name: Publish the authorized second macOS preview
+    needs: macos
+    # This exact first-line marker authorizes only the fixed Preview 2 tag.
+    # Ordinary pushes, tags, pull requests and manual dispatches cannot publish.
+    if: >-
+      github.event_name == 'push' && github.repository == 'aaamosh/DotDial' &&
+      github.ref == 'refs/heads/main' && github.event.head_commit.id == github.sha &&
+      (github.event.head_commit.message == 'Publish macOS preview 2 with silent wake audio sink' ||
+      startsWith(github.event.head_commit.message, format('{0}{1}', 'Publish macOS preview 2 with silent wake audio sink', fromJSON('"\n"'))))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the exact tested source and release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up the pinned publisher runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+      - name: Download only this run's verified Apple Silicon distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: dotdial-macos-arm64-preview-${{ github.sha }}
+          path: build/macos-release/arm64
+      - name: Download only this run's verified Intel distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: dotdial-macos-x64-preview-${{ github.sha }}
+          path: build/macos-release/x64
+      - name: Validate both distributions and publish the complete prerelease
+        run: node scripts/publish-macos-preview.cjs
+        env:
+          GH_TOKEN: ${{ github.token }}

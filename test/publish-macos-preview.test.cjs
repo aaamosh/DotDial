@@ -43,16 +43,18 @@ function fixture(t) {
 
 test('publication context accepts the exact subject and blocks nearby subjects, forks and other triggers', () => {
   const env = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REPOSITORY: REPOSITORY,
-    GITHUB_REF: 'refs/heads/feat/macos', GITHUB_SHA: sourceSha, GITHUB_RUN_ID: context.runId };
+    GITHUB_REF: 'refs/heads/main', GITHUB_SHA: sourceSha, GITHUB_RUN_ID: context.runId };
   const event = { head_commit: { id: sourceSha, message: PUBLISH_SUBJECT } };
   assert.deepEqual(validateContext(env, event), context);
   assert.deepEqual(validateContext(env, { head_commit: { ...event.head_commit, message: PUBLISH_SUBJECT + '\n\nReviewed release.' } }), context);
-  for (const message of [PUBLISH_SUBJECT + ' later', 'Do not ' + PUBLISH_SUBJECT, 'Routine build', PUBLISH_SUBJECT.toLowerCase()]) {
+  for (const message of [PUBLISH_SUBJECT + ' later', 'Do not ' + PUBLISH_SUBJECT, 'Routine build', PUBLISH_SUBJECT.toLowerCase(),
+    'Publish macOS preview 1 with bundled runtime notices']) {
     assert.throws(() => validateContext(env, { head_commit: { ...event.head_commit, message } }), /exact one-time/);
   }
   for (const change of [{ GITHUB_ACTIONS: 'false' }, { GITHUB_EVENT_NAME: 'pull_request' },
     { GITHUB_EVENT_NAME: 'workflow_dispatch' }, { GITHUB_REPOSITORY: 'example/DotDial' },
-    { GITHUB_REF: 'refs/heads/main' }, { GITHUB_SHA: 'main' }, { GITHUB_RUN_ID: '' }]) {
+    { GITHUB_REF: 'refs/heads/feat/macos' }, { GITHUB_REF: 'refs/heads/fix/wake-pipeline-timing' },
+    { GITHUB_REF: `refs/tags/${TAG}` }, { GITHUB_SHA: 'main' }, { GITHUB_RUN_ID: '' }]) {
     assert.throws(() => validateContext({ ...env, ...change }, event));
   }
   assert.throws(() => validateContext(env, { head_commit: { ...event.head_commit, id: 'f'.repeat(40) } }), /exact one-time/);
@@ -143,15 +145,17 @@ function mockGitHub(assets, options = {}) {
     prerelease: true, draft: true, author: { login: 'github-actions[bot]' }, body,
     html_url: `https://github.com/${REPOSITORY}/releases/tag/${TAG}`, assets: [] };
   const state = { commands: [], release: options.release ? { ...structuredClone(baseRelease), ...structuredClone(options.release) } : null,
-    tag: options.tag || null };
+    tag: options.tag || null, otherReleases: structuredClone(options.otherReleases || []) };
   const client = {
     async api(endpoint) {
       if (endpoint === `${apiRoot}/commits/${sourceSha}`) return { sha: sourceSha, commit: { message: options.commitMessage || PUBLISH_SUBJECT } };
       if (endpoint === `${apiRoot}/actions/runs/${context.runId}`) return { id: Number(context.runId),
-        head_sha: options.runSha || sourceSha, event: 'push', head_branch: 'feat/macos', path: '.github/workflows/macos.yml',
+        head_sha: options.runSha || sourceSha, event: 'push', head_branch: options.runBranch || 'main', path: '.github/workflows/macos.yml',
         repository: { full_name: REPOSITORY }, head_repository: { full_name: REPOSITORY } };
       if (endpoint === `${apiRoot}/git/ref/tags/${TAG}`) return state.tag ? { ref: `refs/tags/${TAG}`, object: { type: 'commit', sha: state.tag } } : null;
-      if (endpoint === `${apiRoot}/releases?per_page=100`) return state.release ? [structuredClone(state.release)] : [];
+      if (endpoint === `${apiRoot}/releases?per_page=100`) return structuredClone([
+        ...state.otherReleases, ...(state.release ? [state.release] : []),
+      ]);
       if (endpoint === `${apiRoot}/releases/123`) return structuredClone(state.release);
       throw Error('Unexpected API path: ' + endpoint);
     },
@@ -203,6 +207,32 @@ test('new publication creates a draft, verifies seven uploads, then publishes wi
   assert.equal(state.tag, sourceSha);
 });
 
+test('Preview 2 leaves the existing published Preview 1 and all of its assets untouched', async t => {
+  const input = await promotionFixture(t);
+  const previousTag = 'v0.1.0-beta.3-macos-preview.1';
+  const previousSha = '54889c5b04fe3dc32b79084d56bbec6e187a53de';
+  const previousNames = ['arm64', 'x64'].flatMap(arch => ['.app.zip', '.dmg', '.manifest.json'].map(suffix =>
+    `DotDial-${VERSION}-preview-${previousSha.slice(0, 8)}-macos-${arch}${suffix}`));
+  previousNames.push('SHA256SUMS');
+  const previousRelease = { id: 403612523, tag_name: previousTag, name: 'DotDial for macOS — Preview 1',
+    target_commitish: previousSha, draft: false, prerelease: true, immutable: false,
+    body: 'The previously published release notes must remain intact.',
+    assets: previousNames.map((name, index) => ({ id: 7000 + index, name, state: 'uploaded', size: 1000 + index,
+      digest: `sha256:${digest('previous release bytes: ' + name)}` })) };
+  assert.equal(TAG, 'v0.1.0-beta.3-macos-preview.2', 'this one-time publisher may address only the new tag');
+  const { client, state } = mockGitHub(input.assets, { otherReleases: [previousRelease] });
+  const result = await promoteRelease({ ...input, client });
+  assert.equal(result.tag, TAG);
+  assert.equal(result.alreadyPublished, false);
+  assert.deepEqual(state.otherReleases, [previousRelease], 'existing release metadata and every asset stay unchanged');
+  assert.equal(state.release.tag_name, TAG);
+  assert.deepEqual(state.release.assets, input.assets.map(remoteAsset));
+  for (const args of state.commands) {
+    assert.equal(args[2], TAG, 'every release mutation targets Preview 2');
+    assert.ok(!args.includes(previousTag));
+  }
+});
+
 test('a matching interrupted draft resumes only missing files without recreating or replacing assets', async t => {
   const input = await promotionFixture(t);
   const { client, state } = mockGitHub(input.assets, { release: { assets: input.assets.slice(0, 3).map(remoteAsset) }, tag: sourceSha });
@@ -230,7 +260,8 @@ test('a publish response lost after remote success is reconciled on retry withou
 
 test('wrong source, an existing different tag and another draft stop all mutations', async t => {
   const input = await promotionFixture(t);
-  for (const options of [{ tag: 'f'.repeat(40) }, { runSha: 'f'.repeat(40) }, { commitMessage: 'Routine update' },
+  for (const options of [{ tag: 'f'.repeat(40) }, { runSha: 'f'.repeat(40) }, { runBranch: 'feat/macos' },
+    { commitMessage: 'Routine update' },
     { release: { body: body + 'Changed.' } }, { release: { author: { login: 'another-publisher' } } },
     { release: { target_commitish: 'main' } }, { release: { prerelease: false } }]) {
     const { client, state } = mockGitHub(input.assets, options);

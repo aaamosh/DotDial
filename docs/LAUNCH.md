@@ -1,27 +1,30 @@
 # Launch kit
 
-Factual copy and reusable media for the Linux beta and first public macOS preview. Platform availability was verified on October 5, 2026. Each community's current rules still apply. A submission or editorial pitch is not an accepted listing.
+Copy and reusable media for the Linux beta and macOS Preview 2. Before using the Preview 2 announcements, confirm its public release and native build results. Each community's current rules still apply. A submission or editorial pitch is not an accepted listing.
 
 ## Scope to preserve
 
-- Linux x86_64 **0.1.0-beta.3** and **macOS Preview 1** for Apple Silicon (`arm64`) and Intel (`x64`) are available. An existing ChatGPT account with access to a dot is required.
+- The releases described here are Linux x86_64 **0.1.0-beta.3** and **macOS Preview 2** for Apple Silicon (`arm64`) and Intel (`x64`). An existing ChatGPT account with access to a dot is required.
 - Unofficial community client using internal ChatGPT web routes; compatibility may change.
 - Optional offline **English wake-word recognition**, off by default. Calls themselves are not offline.
 - Local saved-reply playback requires recording to be enabled.
 - No API key or installed ChatGPT/Codex desktop app is required by DotDial.
 - macOS downloads are **ad-hoc signed, without Apple Developer ID signing or notarization**. They are early previews; startup at login may remain unavailable.
-- macOS 13 is the binary deployment target. Native automated checks passed on macOS 15 for both architectures, using synthetic audio. Ventura runtime behavior, physical audio hardware, real permission prompts, sleep/unplug recovery, Login Items and real ChatGPT account calls still need hands-on acceptance. Linux live-call evidence must not be presented as macOS validation.
-- The source tree supports both Linux and macOS. The published Mac binaries come from `54889c5b04fe3dc32b79084d56bbec6e187a53de`; later source changes are not part of Preview 1. Use the [current macOS guide](MACOS.md) for development and the pinned guide below for the released preview.
+- macOS 13 is the binary deployment target. Native automated checks use macOS 15 on both architectures with synthetic audio; cite the results attached to the exact Preview 2 release. Ventura runtime behavior, physical audio hardware, real permission prompts, sleep/unplug recovery, Login Items and real ChatGPT account calls still need hands-on acceptance. Linux live-call evidence must not be presented as macOS validation.
+- Preview 2 changes offline wake capture to an input-only `AudioContext` with a silent sink and a requested 100 ms latency hint, removing its unnecessary dependency on the speaker output clock. Chromium determines the actual callback buffer; 100 ms is not a guaranteed buffer duration or call latency. The native packaged test now exercises four pause/resume cycles, retaining 25 acknowledged PCM blocks within seven seconds after each resume and adding a steady-cadence check: block 1 to block 25 must arrive over 2.4 seconds ±500 ms, excluding microphone acquisition. The precise Chromium/CoreAudio cause of the observed midstream audio-clock stalls is not established; do not promise that every hardware issue is fixed.
+- The source tree supports both Linux and macOS. Preview 2 is identified by tag `v0.1.0-beta.3-macos-preview.2`; its release manifests identify the source revision. Preview 1 remains unchanged at `54889c5b04fe3dc32b79084d56bbec6e187a53de` and does not include the wake-capture fix. Use the [current macOS guide](MACOS.md) for development and the tagged guide below for Preview 2.
 
 ## Release links
 
 | Platform | Release and installation |
 | --- | --- |
 | Linux x86_64 beta | [0.1.0-beta.3: Debian/Ubuntu package, Linux archive and checksums](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3) |
-| macOS Apple Silicon and Intel preview | [Preview 1: DMGs, app ZIPs, source manifests and checksums](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1) |
-| macOS setup and limitations | [Guide for the exact published source](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/docs/MACOS.md) |
+| macOS Apple Silicon and Intel preview | [Preview 2: DMGs, app ZIPs, source manifests and checksums](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) |
+| macOS setup and limitations | [Guide at the Preview 2 tag](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3-macos-preview.2/docs/MACOS.md) |
 
 Use the specific release links above. The Linux beta and Mac preview are separate prereleases; a generic latest-release link does not identify both distributions.
+
+The historical [Preview 1 release](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1) and its [54889c5b guide](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/docs/MACOS.md) remain available. Keep its source identity and test results separate from Preview 2.
 
 ## Reusable media
 
@@ -30,14 +33,14 @@ Use the specific release links above. The Linux beta and Mac preview are separat
 - [18-second Linux synthetic UI preview with the 1997 modem recording](media/dotdial-preview-18s.mp4)
 - [Source provenance, credits and alt text](media/README.md)
 
-The original card, screenshots and video show the Linux synthetic UI, not a live conversation or a recorded macOS call. Preserve their synthetic-preview labels. Use the new platform card when announcing availability on both systems.
+The original card, screenshots and video show the Linux synthetic UI, not a live conversation or a recorded macOS call. Preserve their synthetic-preview labels. The platform card was prepared for Preview 1 and retains that provenance; it can illustrate platform availability, but is not an updated Preview 2 announcement or evidence of its validation.
 
 ## Short original X posts
 
-### macOS Preview 1 announcement
+### macOS Preview 2 announcement
 
-DotDial now has a macOS preview for Apple Silicon + Intel: menu-bar calls to your existing ChatGPT dot, Command-Shift-Space, local saved replies and a 1997 modem handshake. Built with Codex. Ad-hoc signed, not notarized.
-https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1
+DotDial macOS Preview 2: Apple Silicon + Intel, local wake listening independent of the speaker output clock, menu-bar calls and a 1997 modem handshake. Built with Codex. Unofficial; ad-hoc signed, not notarized.
+https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2
 
 ### Linux beta announcement
 
@@ -54,17 +57,17 @@ Check [X automation rules](https://help.x.com/en/rules-and-policies/x-automation
 
 **Maintainer introduction:**
 
-I built DotDial with Codex so I can call my existing ChatGPT dot from the desktop, with a keyboard shortcut or an optional local English wake phrase. It runs in the Linux tray or, with the first Mac preview, the macOS menu bar. A small floating panel controls microphone, speakers and hangup. With recording enabled, muted-speaker replies can be saved locally and played back in order. The default connection sound is an authentic modem handshake recorded in 1997.
+I built DotDial with Codex so I can call my existing ChatGPT dot from the desktop, with a keyboard shortcut or an optional local English wake phrase. It runs in the Linux tray or the macOS menu bar. A small floating panel controls microphone, speakers and hangup. With recording enabled, muted-speaker replies can be saved locally and played back in order. The default connection sound is an authentic modem handshake recorded in 1997.
 
-The Linux x86_64 beta is available as a Debian/Ubuntu package and archive. The first macOS preview has separate Apple Silicon and Intel DMGs and app ZIPs, plus manifests and checksums. Mac builds are ad-hoc signed and not notarized. Native macOS 15 package checks passed on both architectures; physical-device and real-account-call acceptance are still outstanding, and startup at login may remain unavailable.
+The Linux x86_64 beta is available as a Debian/Ubuntu package and archive. macOS Preview 2 has separate Apple Silicon and Intel DMGs and app ZIPs, plus manifests and checksums. It adjusts local wake capture with silent output and a requested 100 ms latency hint; native packaged tests check steady audio delivery across four pause/resume cycles. Mac builds are ad-hoc signed and not notarized. Native checks use macOS 15 and synthetic audio; the release notes identify their results. Physical-device and real-account-call acceptance are still outstanding, and startup at login may remain unavailable.
 
 DotDial is MIT-licensed and unofficial. It requires an account that already has access to a dot and uses internal ChatGPT web-call routes, which may change. No API key is needed. Codex was used to build the application; the runtime is not based on a supported public OpenAI voice API. Wake recognition is off by default; on Mac it needs optional Python 3.10-3.13 setup. The shared screenshots and video are synthetic Linux previews, with no real account or conversation shown.
 
 Project: https://github.com/aaamosh/DotDial
 
-Mac preview: https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1
+Mac preview: https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2
 
-These are maintainer drafts prepared with AI assistance. Preserve affiliation and any destination-required AI disclosure when adapting them. For Showcase, use the updated platform card and distinguish the fixed Preview 1 downloads from subsequent source changes.
+These are maintainer drafts prepared with AI assistance. Preserve affiliation and any destination-required AI disclosure when adapting them. For Showcase, identify Preview 2 explicitly and preserve the Preview 1 provenance of the existing platform card. Distinguish released downloads from subsequent source changes.
 
 ## OpenAI community
 
@@ -84,7 +87,7 @@ This is an experimental Linux x86_64 beta for people who already have access to 
 
 Source, packages, and privacy notes: https://github.com/aaamosh/DotDial
 
-The project also has a separate [macOS preview for Apple Silicon and Intel](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1), released with ad-hoc signatures and without notarization. This introduction is focused on feedback for the Linux beta. I maintain the project and built it with Codex; this draft was prepared with AI assistance.
+The project also has a separate [macOS Preview 2 for Apple Silicon and Intel](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2), released with ad-hoc signatures and without notarization. This introduction is focused on feedback for the Linux beta. I maintain the project and built it with Codex; this draft was prepared with AI assistance.
 
 ## Reddit: r/OpenAI
 
@@ -92,17 +95,17 @@ The project also has a separate [macOS preview for Apple Silicon and Intel](http
 
 **Body:**
 
-I maintain DotDial, a small open-source companion I built with Codex for calling my existing ChatGPT dot. It runs in the Linux tray, and a first macOS preview is now available for Apple Silicon and Intel. On Mac, the default shortcut is Command-Shift-Space. Optional local English wake recognition lets a phrase such as “Hey Dot” start a call within the microphone's range. Wake starts off; the ChatGPT or Codex desktop app does not need to be installed or open. DotDial signs in through its own window with an account that already has access to a dot.
+I maintain DotDial, a small open-source companion I built with Codex for calling my existing ChatGPT dot. It runs in the Linux tray, and macOS Preview 2 is available for Apple Silicon and Intel. On Mac, the default shortcut is Command-Shift-Space. Optional local English wake recognition lets a phrase such as “Hey Dot” start a call within the microphone's range. Wake starts off; the ChatGPT or Codex desktop app does not need to be installed or open. DotDial signs in through its own window with an account that already has access to a dot.
 
 It also has a quiet mode: mute the speakers with recording enabled, and replies can wait in a local audio queue like voicemail until I'm ready to listen. The default call sound is a real recording of a 1997 modem handshake, with telephone and custom MP3/WAV choices. There is no API key; settings live in the app or a plain JSON file.
 
-The Linux x86_64 beta has packages; the Mac preview has DMGs and app ZIPs for both chip families. Mac builds are ad-hoc signed, without Developer ID signing or notarization. Both architectures passed native macOS 15 package checks, but real-device and real-account-call acceptance remain outstanding. Wake on Mac needs the optional Python 3.10-3.13 setup, and startup at login may remain unavailable.
+The Linux x86_64 beta has packages; the Mac preview has DMGs and app ZIPs for both chip families. Preview 2 uses silent output and requests a 100 ms latency hint for offline wake capture; native packaged tests check steady audio delivery across four pause/resume cycles. Mac builds are ad-hoc signed, without Developer ID signing or notarization. Native checks use macOS 15 and synthetic audio; see the exact release for its results. Real-device and real-account-call acceptance remain outstanding. Wake on Mac needs the optional Python 3.10-3.13 setup, and startup at login may remain unavailable.
 
 DotDial is unofficial, and its call flow depends on internal ChatGPT web routes that can change. Screenshots and the short video use a synthetic Linux demo. This maintainer introduction was prepared with AI assistance.
 
 Project and privacy notes: https://github.com/aaamosh/DotDial
 
-Mac preview and installation notes: https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1
+Mac preview and installation notes: https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2
 
 ## Hacker News
 
@@ -110,7 +113,7 @@ The [HN Guidelines](https://news.ycombinator.com/newsguidelines.html) checked on
 
 ## Linux release short copy
 
-This copy describes the existing Linux release only. Use the separate Mac announcement below for Preview 1.
+This copy describes the existing Linux release only. Use the separate Mac announcement below for Preview 2.
 
 **Title:** DotDial v0.1.0-beta.3 — say “Hey Dot” to call your ChatGPT dot
 
@@ -127,21 +130,25 @@ Requires the installed app to be running and a ChatGPT account that already has 
 
 Attach the `.deb`, `.tar.gz`, and `SHA256SUMS` from the exact release build. Do not include account details or recordings.
 
-## macOS Preview 1 announcement
+## macOS Preview 2 announcement
 
-**Title:** DotDial for macOS - first public preview for Apple Silicon and Intel
+**Title:** DotDial for macOS - Preview 2 for Apple Silicon and Intel
 
-DotDial now has a macOS menu-bar preview for calling an existing ChatGPT dot. Use Command-Shift-Space, the menu or optional local English wake recognition; catch up on locally saved replies when recording is enabled. The original 1997 modem handshake is here too.
+DotDial macOS Preview 2 gives offline wake capture silent output and requests a 100 ms audio latency hint. It removes an unnecessary dependency on the speaker output clock; Chromium still determines the actual callback buffer, so 100 ms is not a latency guarantee.
+
+Native packaged tests now repeat four pause/resume cycles, with the same requirement of 25 acknowledged audio blocks within seven seconds after each resume. An additional steady-cadence check requires block 1 to block 25 to arrive over 2.4 seconds ±500 ms, excluding microphone acquisition. The precise Chromium/CoreAudio cause of the observed audio-clock stalls remains unknown; physical hardware still needs testing.
+
+Use Command-Shift-Space, the menu or optional local English wake recognition to call an existing ChatGPT dot; catch up on locally saved replies when recording is enabled. The original 1997 modem handshake is here too.
 
 Choose the Apple Silicon (`arm64`) or Intel (`x64`) DMG, drag DotDial.app into Applications and launch the installed copy. App ZIPs, source manifests and checksums are also available. Ordinary calls and the bundled CLI need no separate Node or Python installation. Optional wake setup requires Python 3.10-3.13 and starts disabled.
 
-These are ad-hoc signed, unnotarized preview builds, without an Apple Developer ID certificate. macOS can require first-launch approval in Privacy & Security. Both architectures passed native package checks on macOS 15; the binary deployment target is macOS 13, whose runtime acceptance is still outstanding. Physical hardware, actual permission prompts, sleep/unplug recovery, Login Items and real ChatGPT account calls also need hands-on testing. Startup at login may remain unavailable.
+These are ad-hoc signed, unnotarized preview builds, without an Apple Developer ID certificate. macOS can require first-launch approval in Privacy & Security. Native package checks use macOS 15 on both architectures; the release notes identify the results for Preview 2. The binary deployment target is macOS 13, whose runtime acceptance is still outstanding. Physical hardware, actual permission prompts, sleep/unplug recovery, Login Items and real ChatGPT account calls also need hands-on testing. Startup at login may remain unavailable.
 
 DotDial is MIT-licensed, built with Codex and unofficial. An existing ChatGPT account with access to a dot is required; its internal web-call routes can change. No API key is needed.
 
-Download and exact release notes: https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1
+Download and exact release notes: https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2
 
-Public source: https://github.com/aaamosh/DotDial/commit/54889c5b04fe3dc32b79084d56bbec6e187a53de
+Public source and build guide: https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3-macos-preview.2/docs/MACOS.md#build-and-verify-from-source
 
 ## Publication notes
 

@@ -12,9 +12,9 @@ const { spawnSync } = require('node:child_process');
 
 const REPOSITORY = 'aaamosh/DotDial';
 const VERSION = '0.1.0-beta.3';
-const TAG = 'v0.1.0-beta.3-macos-preview.1';
-const TITLE = 'DotDial for macOS — Preview 1';
-const PUBLISH_SUBJECT = 'Publish macOS preview 1 with bundled runtime notices';
+const TAG = 'v0.1.0-beta.3-macos-preview.2';
+const TITLE = 'DotDial for macOS — Preview 2';
+const PUBLISH_SUBJECT = 'Publish macOS preview 2 with silent wake audio sink';
 const ARCHITECTURES = ['arm64', 'x64'];
 const API_ROOT = `/repos/${REPOSITORY}`;
 const SOURCE_PATTERN = /^[a-f0-9]{40}$/;
@@ -29,7 +29,7 @@ function subject(message) {
 
 function validateContext(env, event) {
   requireValue(env.GITHUB_ACTIONS === 'true' && env.GITHUB_EVENT_NAME === 'push' &&
-    env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === 'refs/heads/feat/macos',
+    env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === 'refs/heads/main',
   'Only the authorized repository branch push may publish this preview.');
   requireValue(SOURCE_PATTERN.test(env.GITHUB_SHA || '') && /^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID || ''),
     'The exact source commit and Actions run are required.');
@@ -185,7 +185,7 @@ async function verifySource(client, context) {
     'GitHub source readback does not match the authorized publication commit.');
   const run = await client.api(`${API_ROOT}/actions/runs/${context.runId}`);
   requireValue(String(run.id) === context.runId && run.head_sha === context.sourceSha && run.event === 'push' &&
-    run.head_branch === 'feat/macos' && run.path === '.github/workflows/macos.yml' &&
+    run.head_branch === 'main' && run.path === '.github/workflows/macos.yml' &&
     run.repository?.full_name === REPOSITORY && run.head_repository?.full_name === REPOSITORY,
   'The artifacts must come from the native workflow for this exact repository push.');
 }
@@ -257,12 +257,12 @@ async function main(env = process.env) {
   const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
   const context = validateContext(env, event);
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  requireValue(pkg.name === 'dotdial' && pkg.version === VERSION, 'This publisher is restricted to the first macOS preview version.');
+  requireValue(pkg.name === 'dotdial' && pkg.version === VERSION, 'This publisher is restricted to the Preview 2 application version.');
   const distribution = await validateArtifacts(path.join(root, 'build', 'macos-release'),
     { ...context, electronVersion: pkg.devDependencies.electron });
   const output = path.join(root, 'build', 'macos-promotion');
   const assets = await addCombinedChecksums(distribution, output);
-  const body = renderReleaseBody(fs.readFileSync(path.join(root, 'docs', 'releases', 'macos-preview-1.md'), 'utf8'), context);
+  const body = renderReleaseBody(fs.readFileSync(path.join(root, 'docs', 'releases', 'macos-preview-2.md'), 'utf8'), context);
   const notesFile = path.join(output, 'release-notes.md');
   fs.writeFileSync(notesFile, body, { mode: 0o644 });
   const result = await promoteRelease({ client: githubClient(env), context, assets, body, notesFile });
