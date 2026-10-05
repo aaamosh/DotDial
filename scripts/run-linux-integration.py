@@ -24,6 +24,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 
 MAX_LOG_BYTES = 32 * 1024 * 1024
@@ -223,10 +224,25 @@ def start_services(supervisor, work, env, cwd):
     # GTK must not autolaunch a session bus that outlives a smoke. This bus is
     # foreground, private to our mode-0700 work directory, and reaped finally.
     bus_socket = work / 'dbus.sock'
+    # The host session config can activate portals and accessibility services
+    # which outlive Electron and look like leaked app workers. A private bus
+    # must also have private service discovery; keep the leak checks intact.
+    bus_services = work / 'dbus-services'
+    bus_services.mkdir(mode=0o700)
+    bus_config = work / 'dbus-session.conf'
+    bus_config.write_text(
+        '<busconfig><type>session</type>'
+        f'<listen>unix:path={escape(str(bus_socket))}</listen>'
+        '<auth>EXTERNAL</auth>'
+        f'<servicedir>{escape(str(bus_services))}</servicedir>'
+        '<policy context="default">'
+        '<allow send_destination="*" eavesdrop="true"/>'
+        '<allow eavesdrop="true"/><allow own="*"/>'
+        '</policy></busconfig>\n')
     read_fd, write_fd = os.pipe()
     try:
-        bus, _ = supervisor.spawn('dbus-daemon', ['dbus-daemon', '--session', '--nofork',
-            '--nopidfile', '--address=unix:path=' + str(bus_socket), '--print-address=' + str(write_fd)],
+        bus, _ = supervisor.spawn('dbus-daemon', ['dbus-daemon', '--nofork',
+            '--nopidfile', '--config-file=' + str(bus_config), '--print-address=' + str(write_fd)],
             env, cwd, service=True, pass_fds=(write_fd,))
         os.close(write_fd)
         write_fd = None
