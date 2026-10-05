@@ -163,10 +163,32 @@ function readElectronNotices(electronDirectory, expectedVersion) {
   if (typeof expectedVersion !== 'string' || installed.version !== expectedVersion) {
     throw Error('Electron license provenance requires the exact installed runtime version.');
   }
+  const distributionVersion = readNotice(path.join(electronDirectory, 'dist', 'version'),
+    'Electron distribution version').toString('utf8').trim().replace(/^v/, '');
+  if (distributionVersion !== expectedVersion) throw Error('Electron distribution version does not match the pinned runtime.');
   return ELECTRON_NOTICE_FILES.map(name => {
     const bytes = readNotice(path.join(electronDirectory, 'dist', name), 'Electron distribution notice');
     return { name, bytes, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
   });
+}
+
+function ensureElectronDistribution(electronDirectory, expectedVersion) {
+  const installed = JSON.parse(fs.readFileSync(path.join(electronDirectory, 'package.json'), 'utf8'));
+  if (typeof expectedVersion !== 'string' || installed.version !== expectedVersion) {
+    throw Error('Electron installation requires the exact pinned npm package.');
+  }
+  // Electron 44 installs its native distribution lazily: npm ci alone only
+  // installs the npm package. Run that pinned package's installer explicitly
+  // before reading any distribution files; it checks its existing install and
+  // verifies the downloaded archive with the package's pinned checksums.
+  command(process.execPath, [path.join(electronDirectory, 'install.js')], { timeout: 180_000 });
+  readElectronNotices(electronDirectory, expectedVersion);
+  const executable = path.join(electronDirectory, 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
+  const stat = fs.lstatSync(executable);
+  if (!stat.isFile() || stat.size === 0 || (stat.mode & 0o111) === 0) {
+    throw Error('The installed native Electron executable is missing or not executable.');
+  }
+  return { electronVersion: expectedVersion, executable };
 }
 
 function copyElectronNotices(electronDirectory, destination, expectedVersion) {
@@ -251,6 +273,7 @@ async function main(argv = process.argv.slice(2)) {
     const manifestFile = path.join(temporary, 'dotdial-build.json');
     fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o644 });
     const electronDirectory = path.join(ROOT, 'node_modules', 'electron');
+    ensureElectronDistribution(electronDirectory, manifest.electronVersion);
     const electronNotices = copyElectronNotices(electronDirectory,
       path.join(temporary, ELECTRON_NOTICES_DIRECTORY), manifest.electronVersion);
     const results = await packager({
@@ -318,4 +341,4 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) main().catch(error => { console.error('macOS packaging failed:', error.stack || error.message); process.exitCode = 1; });
-module.exports = { main, validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, prepareAppSource, copyElectronNotices, verifyElectronNotices, verifyBundle, sha256, BUNDLE_ID, MINIMUM_MACOS, MICROPHONE_DESCRIPTION };
+module.exports = { main, validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, prepareAppSource, ensureElectronDistribution, copyElectronNotices, verifyElectronNotices, verifyBundle, sha256, BUNDLE_ID, MINIMUM_MACOS, MICROPHONE_DESCRIPTION };

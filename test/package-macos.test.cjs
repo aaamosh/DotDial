@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const test = require('node:test');
-const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, copyElectronNotices, verifyElectronNotices, BUNDLE_ID } = require('../scripts/package-macos.cjs');
+const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, ensureElectronDistribution, copyElectronNotices, verifyElectronNotices, BUNDLE_ID } = require('../scripts/package-macos.cjs');
 const { runRequiredStages, parseJsonLine, verifyArtifactChecksums, verifySpeechFixtures } = require('../scripts/verify-macos-package.cjs');
 const { createHash } = require('node:crypto');
 const pkg = { name: 'dotdial', productName: 'DotDial', version: '0.1.0-beta.2', devDependencies: { electron: '44.5.1', '@electron/packager': '20.3.0' } };
@@ -23,6 +23,7 @@ function noticeFixture(t) {
   fs.mkdirSync(distribution, { recursive: true });
   fs.mkdirSync(path.join(resources, 'app'), { recursive: true });
   fs.writeFileSync(path.join(electronDirectory, 'package.json'), JSON.stringify({ version: '44.5.1' }));
+  fs.writeFileSync(path.join(distribution, 'version'), '44.5.1');
   fs.writeFileSync(path.join(resources, 'app', 'LICENSE'), 'DotDial license fixture\n');
   // These deliberately small fixture bytes exercise preservation/provenance;
   // they do not claim to be upstream notices or a native application bundle.
@@ -30,6 +31,39 @@ function noticeFixture(t) {
   for (const [name, bytes] of Object.entries(contents)) fs.writeFileSync(path.join(distribution, name), bytes);
   return { directory, electronDirectory, distribution, bundle, resources, contents };
 }
+
+test('macOS packaging explicitly prepares Electron 44 lazy distribution and checks its version and executable', t => {
+  const { directory, electronDirectory, distribution, contents } = noticeFixture(t);
+  fs.rmSync(distribution, { recursive: true });
+  const installed = path.join(electronDirectory, 'install.js');
+  // The ordinary Node fixture installer only writes test files. No native
+  // binary is executed and no download, macOS API or signature is simulated.
+  const writeInstaller = (version, makeExecutable = true) => fs.writeFileSync(installed, `
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dist = path.join(__dirname, 'dist');
+    fs.mkdirSync(dist, { recursive: true });
+    fs.writeFileSync(path.join(dist, 'version'), ${JSON.stringify(version)});
+    for (const [name, contents] of Object.entries(${JSON.stringify(contents)})) fs.writeFileSync(path.join(dist, name), contents);
+    if (${makeExecutable}) {
+      const binary = path.join(dist, 'Electron.app', 'Contents', 'MacOS', 'Electron');
+      fs.mkdirSync(path.dirname(binary), { recursive: true });
+      fs.writeFileSync(binary, 'Native executable placeholder; do not execute.', { mode: 0o755 });
+    }
+  `);
+  writeInstaller('44.5.1');
+  assert.throws(() => copyElectronNotices(electronDirectory, path.join(directory, 'before-install'), '44.5.1'), /Electron distribution version/);
+  const readiness = ensureElectronDistribution(electronDirectory, '44.5.1');
+  assert.equal(readiness.electronVersion, '44.5.1');
+  assert.equal(fs.statSync(readiness.executable).isFile(), true);
+  assert.doesNotThrow(() => copyElectronNotices(electronDirectory, path.join(directory, 'after-install'), '44.5.1'));
+  assert.throws(() => ensureElectronDistribution(electronDirectory, '44.5.0'), /exact pinned npm package/);
+  writeInstaller('44.5.0');
+  assert.throws(() => ensureElectronDistribution(electronDirectory, '44.5.1'), /distribution version does not match/);
+  fs.rmSync(distribution, { recursive: true });
+  writeInstaller('44.5.1', false);
+  assert.throws(() => ensureElectronDistribution(electronDirectory, '44.5.1'), /ENOENT|executable/);
+});
 
 test('macOS packages preserve exact pinned Electron notices separately from the project license', t => {
   const fixture = noticeFixture(t);
