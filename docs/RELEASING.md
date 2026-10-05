@@ -70,10 +70,10 @@ The build jobs had read-only repository permissions; only the promotion job coul
 write release contents. That completed job has been removed from active CI.
 
 Regular workflows build and verify packages for pull requests, `main` pushes,
-`v*` tags and manual runs, then preserve artifacts and reports. Preview 2's
-explicit promotion gate below is the only active publication path. The original
-Preview 1 publisher and regression tests remain available at its released source
-commit for provenance.
+`v*` tags and manual runs, then preserve artifacts and reports. There is no active
+publication path in normal CI: both completed macOS promotion jobs have been
+removed. The original workflows, publishers and regression tests remain available
+at their respective released source commits for provenance.
 
 The first promotion downloaded the distribution artifacts from that same workflow
 run, checked their complete file inventories, manifests and SHA-256 values, and
@@ -84,54 +84,67 @@ release. The publisher rejects mismatched tags or assets instead of overwriting 
 
 ## Second macOS preview publication
 
-Preview 2 uses the separate tag `v0.1.0-beta.3-macos-preview.2` and retains the
-application version `0.1.0-beta.3`. Its [release notes](releases/macos-preview-2.md)
+Preview 2 was published as `v0.1.0-beta.3-macos-preview.2` from source
+[`0b9924b014d4c46271647e95d97806811fb45229`](https://github.com/aaamosh/DotDial/commit/0b9924b014d4c46271647e95d97806811fb45229)
+through [native release run 37342159498](https://github.com/aaamosh/DotDial/actions/runs/37342159498).
+It retains application version `0.1.0-beta.3`. Its [release notes](releases/macos-preview-2.md)
 describe local wake capture's silent audio sink and requested 100 ms Web Audio
-latency hint. The release candidate must use both `sinkId: { type: 'none' }` and
-`latencyHint: 0.1`. Preserve Preview 1's tag, release notes and downloaded files;
-this publisher addresses only Preview 2.
+latency hint: the released runtime uses both `sinkId: { type: 'none' }` and
+`latencyHint: 0.1`. Preview 1's tag, release notes and downloaded files are
+preserved separately.
 
-After the runtime correction passes native acceptance and is merged, prepare a
-reviewed release commit on `main` whose first line is exactly:
+The [workflow at the released source](https://github.com/aaamosh/DotDial/blob/0b9924b014d4c46271647e95d97806811fb45229/.github/workflows/macos.yml)
+used a one-time promotion gate for a push to `aaamosh/DotDial` on `main`, with
+this exact commit-message first line:
 
 ```text
 Publish macOS preview 2 with silent wake audio sink
 ```
 
-That push must come from `aaamosh/DotDial`. The `publish-preview-2` job waits for
-both native matrix jobs to pass, including the unit suite, public-source audit
-and every required package gate. It downloads only that same run's Apple Silicon
-and Intel distribution artifacts. The build jobs keep read-only permissions;
-only the promotion job has `contents: write` and `actions: read`, using the
-workflow-scoped token. No project dependencies are installed and no application
-build runs in the write job.
+The historical `publish-preview-2` job depended on both native matrix jobs
+passing the unit suite, public-source audit and every required package gate.
+It downloaded only that same run's Apple Silicon and Intel distribution artifacts.
+The build jobs had read-only permissions; only the promotion job had
+`contents: write` and `actions: read`, using the workflow-scoped token. No project
+dependencies were installed and no application build ran in the write job.
 
-Native pipeline acceptance retains the 25 acknowledged PCM blocks within seven
+The native pipeline gate retained the 25 acknowledged PCM blocks within seven
 seconds requirement for initial capture and four pause/resume cycles. It also
-requires a first-to-last span of 2400 ms, within 500 ms, for those 25 consecutive
-100 ms blocks. The restart check uses 10 blocks with a 900 ms expected span and
-the same tolerance. Acquisition time is excluded from these cadence measurements.
-Both architectures must satisfy these checks in the release commit's native run.
+required a first-to-last span of 2400 ms, within 500 ms, for those 25 consecutive
+100 ms blocks. The restart check used 10 blocks with a 900 ms expected span and
+the same tolerance. Acquisition time was excluded from these cadence measurements.
+Both architectures had to satisfy these checks before promotion.
 
-The publisher requires the exact source SHA in both manifests, a clean source
-tree, the expected preview/signature metadata, exactly three distribution files
-per architecture and matching SHA-256 checksums. It creates a draft targeting
-the exact release commit, uploads those six files and one combined `SHA256SUMS`,
-and checks GitHub's uploaded sizes and digests before publishing the prerelease
-with `--latest=false`. It never replaces a mismatched tag or existing asset.
+The [publisher at the released source](https://github.com/aaamosh/DotDial/blob/0b9924b014d4c46271647e95d97806811fb45229/scripts/publish-macos-preview.cjs)
+required the exact source SHA in both manifests, a clean source tree, the expected
+preview/signature metadata, exactly three distribution files per architecture
+and matching SHA-256 checksums. It created a draft targeting the exact release
+commit, uploaded those six files and one combined `SHA256SUMS`, and checked
+GitHub's uploaded sizes and digests before publishing with `--latest=false`.
+Its fixed tag and conflict checks prevent replacement of mismatched tags or assets.
 
-Ordinary pushes, tag pushes, pull requests and manual dispatches cannot invoke
-promotion. The publication source SHA has a separate concurrency group so a
-later normal `main` push cannot cancel it partway through. After independent
-release/tag/asset readback succeeds, remove the completed one-time job and restore
-the ordinary concurrency group along with the final download-link updates.
+The first promotion attempt stopped during the immediate readback of its newly
+created draft, before any asset upload. A later readback matched the exact source,
+notes, author and empty asset inventory. Only the promotion job was resumed;
+[job 111878337803](https://github.com/aaamosh/DotDial/actions/runs/37342159498/job/111878337803)
+published the same run's original artifacts after all seven remote sizes and
+digests matched. The native jobs were not rebuilt for this recovery. The first
+readback response was not retained, so its precise mismatch is undetermined.
 
-If upload is interrupted, rerun only the failed promotion job using the same
-run's artifacts. An unchanged draft owned by that run resumes missing uploads;
-matching published files are verified without writes. Rebuilding the packages
-can produce different bytes and must not be used to overwrite an existing draft
-or published release. Keep the exact source, run and checksum evidence with the
-release verification record.
+The completed one-time job has been removed from active CI, and the ordinary
+workflow/event/ref concurrency group has been restored. The source, workflow run
+and checksum evidence above are the provenance of the published packages; this
+historical gate does not authorize publication from a new commit.
+
+Replay and recovery apply only to the archived `publish-preview-2` job in
+[run 37342159498](https://github.com/aaamosh/DotDial/actions/runs/37342159498),
+while that run's original artifacts remain available. If its upload were
+interrupted, only the original promotion job should be rerun: an unchanged draft
+owned by that run resumes missing uploads, and matching published files are
+verified without writes. Rebuilding packages can produce different bytes and
+must not be used to overwrite an existing draft or published release. Preserve
+the original source, run and checksum evidence with the release verification
+record.
 
 ## macOS distribution acceptance
 
