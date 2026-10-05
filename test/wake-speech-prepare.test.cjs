@@ -60,10 +60,22 @@ if os.name != 'posix':
 with tempfile.TemporaryDirectory() as root:
     output = Path(root)
     report = {'stages': []}
-    sleeper = "import os,time; print(os.getpid(),flush=True); time.sleep(10)"
-    rejects(lambda: m['run_logged']([sys.executable, '-c', sleeper], output, output, 'timeout', report,
-                                   time.monotonic() + 5, 0.15), 'timed out')
-    pid = int((output / 'timeout.log').read_text().strip())
+    sleeper = "import time; time.sleep(10)"
+    # The deadline can expire before the child interpreter emits any stdout.
+    # Observe its real Popen handle instead of depending on a printed PID.
+    subprocess_module = m['run_logged'].__globals__['subprocess']
+    real_popen = subprocess_module.Popen
+    started = []
+    def observe_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        started.append(process)
+        return process
+    with mock.patch.object(subprocess_module, 'Popen', side_effect=observe_popen):
+        rejects(lambda: m['run_logged']([sys.executable, '-c', sleeper], output, output, 'timeout', report,
+                                       time.monotonic() + 5, 0.15), 'timed out')
+    assert len(started) == 1
+    assert started[0].returncode == -signal.SIGKILL, 'timed-out child must be killed and reaped'
+    pid = started[0].pid
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
