@@ -13,8 +13,8 @@ const ROOT = path.resolve(__dirname, '..');
 const CONSTRUCTOR = "new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' } })";
 const VARIANTS = [
   { name: 'default-interactive', constructor: "new AudioContext({ sampleRate: 16000, latencyHint: 'interactive' })" },
-  { name: 'none-interactive', constructor: "new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' }, latencyHint: 'interactive' })" },
-  { name: 'none-playback', constructor: "new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' }, latencyHint: 'playback' })" },
+  { name: 'none-100ms', constructor: "new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' }, latencyHint: 0.1 })" },
+  { name: 'none-250ms', constructor: "new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' }, latencyHint: 0.25 })" },
 ];
 const hash = value => createHash('sha256').update(value).digest('hex');
 function argument(name) {
