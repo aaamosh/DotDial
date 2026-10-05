@@ -38,12 +38,64 @@ async function speakerState(peer, muted) {
   }
 }
 
-async function capture(window, outputDirectory, filename) {
-  await until(() => evaluate(window, `(() => {
+function windowVisibility(window) {
+  if (window.isDestroyed()) return { destroyed: true };
+  return { destroyed: false, visible: window.isVisible(), minimized: window.isMinimized(),
+    focused: window.isFocused(), bounds: window.getBounds() };
+}
+
+async function readinessSnapshot(window, timeoutMs = 500) {
+  const snapshot = { window: windowVisibility(window) };
+  if (snapshot.window.destroyed || window.webContents.isDestroyed()) return snapshot;
+  let timer;
+  try {
+    snapshot.document = await Promise.race([evaluate(window, `(() => {
     const section = document.querySelector('.settings-section.active');
-    return document.fonts?.status !== 'loading' &&
-      (!section || section.getClientRects().length === 0 || Number(getComputedStyle(section).opacity) >= 0.99);
-  })()`), 'packaged_capture_layout_not_ready', 5000);
+    const finite = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
+    const animations = section?.getAnimations() || [];
+    return { readyState: document.readyState, visibilityState: document.visibilityState,
+      fontsStatus: document.fonts?.status || null, timelineTime: finite(document.timeline?.currentTime),
+      section: section ? { rectCount: section.getClientRects().length,
+        opacity: getComputedStyle(section).opacity } : null,
+      animationCount: animations.length, animations: animations.slice(0, 8).map(animation => ({
+        name: String(animation.animationName || '').slice(0, 80), playState: String(animation.playState).slice(0, 24),
+        pending: animation.pending === true, currentTime: finite(animation.currentTime), startTime: finite(animation.startTime),
+      })) };
+  })()`), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Error('renderer_readiness_query_timeout')), timeoutMs);
+    })]);
+  } catch (error) {
+    snapshot.rendererError = String(error.message || error).slice(0, 160);
+  } finally { clearTimeout(timer); }
+  return snapshot;
+}
+
+async function waitForSettingsVisible(window, timeoutMs = 5000) {
+  try {
+    return await until(() => {
+      const observed = windowVisibility(window);
+      return !observed.destroyed && observed.visible && !observed.minimized ? observed : null;
+    }, 'packaged_settings_not_visible', timeoutMs);
+  } catch (error) {
+    error.captureReadiness = { stage: 'initial_settings_visibility', observed: await readinessSnapshot(window) };
+    throw error;
+  }
+}
+
+async function capture(window, outputDirectory, filename, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  let observed;
+  try {
+    await until(async () => {
+      observed = await readinessSnapshot(window, Math.max(1, Math.min(500, deadline - Date.now())));
+      const document = observed.document;
+      return document && document.fontsStatus !== 'loading' &&
+        (!document.section || document.section.rectCount === 0 || Number(document.section.opacity) >= 0.99);
+    }, 'packaged_capture_layout_not_ready', timeoutMs);
+  } catch (error) {
+    error.captureReadiness = { stage: 'capture', filename, observed };
+    throw error;
+  }
   const image = await window.webContents.capturePage();
   assert.equal(image.isEmpty(), false, 'packaged window must produce pixels');
   const size = image.getSize();
@@ -56,7 +108,7 @@ async function capture(window, outputDirectory, filename) {
       fs.renameSync(temporary, path.join(outputDirectory, filename));
     } finally { fs.rmSync(temporary, { force: true }); }
   }
-  return { width: size.width, height: size.height, png_bytes: png.length,
+  return { width: size.width, height: size.height, png_bytes: png.length, readiness: observed,
     sha256: crypto.createHash('sha256').update(png).digest('hex') };
 }
 
@@ -256,6 +308,10 @@ async function run() {
     await app.whenReady();
     const settings = await until(() => BrowserWindow.getAllWindows().find(window =>
       window.webContents.getURL().includes('view=settings')), 'packaged_settings_missing');
+    // DOM/preload readiness can precede the first paint. The real app starts
+    // this window hidden and shows it on ready-to-show; do not drive save/reload
+    // until that normal initial-show lifecycle has completed.
+    const initialSettingsVisibility = await waitForSettingsVisible(settings);
     await until(() => evaluate(settings,
       '!!window.dotdial && !!document.querySelector("#dot-display-name")?.value'), 'packaged_settings_not_ready');
     const original = await evaluate(settings, 'window.dotdial.readConfig()');
@@ -331,7 +387,8 @@ async function run() {
       arch: process.arch, version: app.getVersion(), electron: process.versions.electron,
       chromium: process.versions.chrome, packaged: app.isPackaged, elapsed_ms: Date.now() - started,
       software_rendering_requested: process.argv.includes('--disable-gpu'),
-      gui: { settings_preload: true, form_save_to_disk: true, settings_reload_persistence: true,
+      gui: { settings_preload: true, initial_settings_visibility: initialSettingsVisibility,
+        form_save_to_disk: true, settings_reload_persistence: true,
         demo_call_active: true, microphone_toggle: true, speakers_toggle: true, hangup_hides_panel: true,
         settings_capture: settingsCapture, panel_capture: panelCapture },
       media, wake_capture: wakeCapture, physical_microphone_tested: false,
@@ -341,9 +398,9 @@ async function run() {
   } catch (error) {
     clearTimeout(watchdog);
     console.error('DOTDIAL_PACKAGED_SMOKE ' + JSON.stringify({ result: 'failed', phase,
-      error: String(error?.message || 'smoke_failed').slice(0, 500) }));
+      error: String(error?.message || 'smoke_failed').slice(0, 500), captureReadiness: error.captureReadiness }));
     throw error;
   }
 }
 
-module.exports = { run };
+module.exports = { run, waitForSettingsVisible, capture };

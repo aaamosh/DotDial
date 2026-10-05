@@ -1,0 +1,73 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const { waitForSettingsVisible, capture } = require('../scripts/smoke-packaged.cjs');
+
+function fixture() {
+  const state = { visible: false, captures: 0,
+    document: { readyState: 'complete', visibilityState: 'visible', fontsStatus: 'loaded',
+      section: { rectCount: 1, opacity: '1' }, animationCount: 0, animations: [] } };
+  const window = { isDestroyed: () => false, isVisible: () => state.visible,
+    isMinimized: () => false, isFocused: () => state.visible,
+    getBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    show: () => assert.fail('the smoke must wait for the application to show its own window'),
+    webContents: { isDestroyed: () => false,
+      executeJavaScript: async () => structuredClone(state.document),
+      // Mock pixels only exercise the guard; no native rendering is claimed.
+      capturePage: async () => { state.captures++; return { isEmpty: () => false,
+        getSize: () => ({ width: 800, height: 600 }), toPNG: () => Buffer.alloc(600, 1) }; },
+    } };
+  return { window, state };
+}
+
+test('packaged smoke cannot drive settings or reload before the normal initial window show', async () => {
+  const { window, state } = fixture();
+  let interactionStarted = false;
+  const ready = waitForSettingsVisible(window, 2000).then(observed => {
+    interactionStarted = true;
+    return observed;
+  });
+  await Promise.resolve();
+  assert.equal(interactionStarted, false, 'a ready DOM in a hidden window is not enough');
+  state.visible = true; // Model only the app's normal ready-to-show handler.
+  assert.equal((await ready).visible, true);
+  assert.equal(interactionStarted, true);
+});
+
+test('capture preserves font and opacity assertions and reports the last readiness state', async () => {
+  const { window, state } = fixture();
+  state.visible = true;
+  for (const document of [
+    { ...state.document, fontsStatus: 'loading' },
+    { ...state.document, section: { rectCount: 1, opacity: '0.3' }, animationCount: 1,
+      animations: [{ name: 'section-enter', playState: 'running', currentTime: 0, pending: true }] },
+  ]) {
+    state.document = document;
+    await assert.rejects(() => capture(window, undefined, 'settings.png', 20), error => {
+      assert.equal(error.message, 'packaged_capture_layout_not_ready');
+      assert.equal(error.captureReadiness.observed.window.visible, true);
+      assert.deepEqual(error.captureReadiness.observed.document, document);
+      return true;
+    });
+    assert.equal(state.captures, 0, 'an unsettled layout must never reach pixel capture');
+  }
+  state.document = { ...state.document, fontsStatus: 'loaded', section: { rectCount: 1, opacity: '1' } };
+  const result = await capture(window, undefined, 'settings.png');
+  assert.equal(state.captures, 1);
+  assert.deepEqual(result.readiness.document, state.document);
+});
+
+test('a stalled renderer query cannot leave screenshot readiness or its diagnostics unbounded', async () => {
+  const { window, state } = fixture();
+  state.visible = true;
+  window.webContents.executeJavaScript = () => new Promise(() => {});
+  const started = Date.now();
+  await assert.rejects(() => capture(window, undefined, 'settings.png', 20), error => {
+    assert.equal(error.message, 'packaged_capture_layout_not_ready');
+    assert.equal(error.captureReadiness.observed.rendererError, 'renderer_readiness_query_timeout');
+    return true;
+  });
+  assert.equal(state.captures, 0);
+  assert.ok(Date.now() - started < 1000);
+});

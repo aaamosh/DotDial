@@ -185,6 +185,13 @@ The verifier requires every stage to pass:
 | `native_wake_speech` | Generated speech produces the required positive and two negative recognition results described above. |
 | `disk_image` | The DMG is readable and contains the verified application and Applications shortcut. |
 
+The packaged GUI smoke waits for the application to show its settings window
+before editing and reloading the form. DOM or preload readiness alone does not
+establish that the first window has appeared. Screenshot capture still requires
+settled fonts, the active section's final opacity and nonempty pixels within its
+existing deadline. Its report includes bounded window, document and animation
+state so a rendering timeout can be diagnosed without bypassing the assertion.
+
 The pipeline loads the extracted package's capture/manager/listener code into a
 development Electron of the same pinned version and uses native Python
 dependencies. An independently bounded process supervisor cleans up even if its
