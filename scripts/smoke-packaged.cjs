@@ -399,7 +399,22 @@ async function run() {
     await evaluate(settings, 'document.querySelector(".nav-item[data-section=voice]").click()');
     assert.equal(await evaluate(settings, 'document.querySelector("#wake-commands-enabled").checked'), true);
     assert.equal(await evaluate(settings, 'document.querySelector("#wake-command-microphone-off").value'), 'Quiet microphone');
-    assert.equal(await evaluate(settings, 'document.querySelector("#wake-command-microphone-off").disabled'), false);
+    assert.equal(await evaluate(settings, 'document.querySelector("#wake-command-microphone-off").disabled'), true,
+      'wake off keeps commands unavailable even when their opt-in is saved');
+    // Exercise form dependencies without saving wake on or opening a microphone.
+    for (const [wakeEnabled, commandsEnabled, disabled] of [[true, true, false], [true, false, true], [false, true, true]]) {
+      await evaluate(settings, `(() => {
+        for (const [id, checked] of [['wake-enabled', ${wakeEnabled}], ['wake-commands-enabled', ${commandsEnabled}]]) {
+          const input = document.getElementById(id);
+          input.checked = checked; input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })()`);
+      const fields = await evaluate(settings, `Array.from(document.querySelectorAll('#wake-command-fields input')).map(input => input.disabled)`);
+      assert.equal(fields.length, 7);
+      assert.ok(fields.every(value => value === disabled), 'all seven command fields follow both toggles');
+    }
+    assert.deepEqual((await evaluate(settings, 'window.dotdial.readConfig()')).config, saved.config,
+      'unsaved dependency checks must not enable local listening on disk');
     const voiceSettingsCapture = await capture(settings, outputDirectory, 'voice-settings.png');
 
     phase = 'panel';

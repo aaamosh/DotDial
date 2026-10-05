@@ -15,12 +15,12 @@ function wav() {
   return bytes;
 }
 
-test('native command speech preserves signed PCM and adds exactly half-second context', () => {
+test('native command speech preserves signed PCM and keeps speech and leading context while supplying one second of model look-ahead', () => {
   const pcm = pcmFromWav(wav());
-  assert.equal(pcm.length, (1600 + 16000) * 4);
+  assert.equal(pcm.length, (1600 + 24000) * 4);
   assert.equal(pcm.readFloatLE(32000), -0.5); assert.equal(pcm.readFloatLE(32004), 0.25);
   assert.ok(pcm.subarray(0, 32000).every(byte => byte === 0));
-  assert.ok(pcm.subarray(pcm.length - 32000).every(byte => byte === 0));
+  assert.ok(pcm.subarray(pcm.length - 64000).every(byte => byte === 0));
 });
 
 test('native command speech rejects silent, stereo, wrong-rate and truncated WAVs', () => {
@@ -66,4 +66,13 @@ test('duplicate required gate names fail before running or overwriting evidence'
   let calls = 0;
   await assert.rejects(runRequiredStages([['same', async () => { calls++; }], ['same', async () => { calls++; }]], {}), /unique/);
   assert.equal(calls, 0);
+});
+
+
+test('finite-fixture comparison changes only trailing silence, never speech or recognition thresholds', () => {
+  const short = pcmFromWav(wav(), 8000), full = pcmFromWav(wav(), 16000);
+  assert.equal(full.length - short.length, 32000);
+  assert.deepEqual(full.subarray(0, short.length), short);
+  assert.ok(full.subarray(short.length).every(byte => byte === 0));
+  for (const frames of [0, -1, 16001, 32000, NaN]) assert.throws(() => pcmFromWav(wav(), frames));
 });
