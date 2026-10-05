@@ -53,13 +53,28 @@
     },
     "wakeWord": {
       "type": "object", "additionalProperties": false,
-      "required": ["enabled", "phrase", "sensitivity", "modelPath", "pythonPath", "deviceName", "deviceHostApi"],
+      "required": ["enabled", "commandsEnabled", "commands", "phrase", "sensitivity", "modelPath", "pythonPath", "deviceName", "deviceHostApi"],
       "allOf": [
         { "if": { "properties": { "deviceName": { "minLength": 1 } }, "required": ["deviceName"] }, "then": { "properties": { "deviceHostApi": { "minLength": 1 } } } },
         { "if": { "properties": { "deviceHostApi": { "minLength": 1 } }, "required": ["deviceHostApi"] }, "then": { "properties": { "deviceName": { "minLength": 1 } } } }
       ],
       "properties": {
         "enabled": { "type": "boolean", "default": false },
+        "commandsEnabled": { "type": "boolean", "default": false, "description": "Enable local English call commands while wake-word listening is enabled." },
+        "commands": {
+          "type": "object", "additionalProperties": false,
+          "required": ["microphoneOff", "microphoneOn", "speakersOff", "speakersOn", "hangUp", "playMissedReplies", "stopPlayback"],
+          "properties": {
+            "microphoneOff": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^ *[A-Za-z]+(?:'[A-Za-z]+)?(?: +[A-Za-z]+(?:'[A-Za-z]+)?){1,5} *$", "default": "Microphone off" },
+            "microphoneOn": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^ *[A-Za-z]+(?:'[A-Za-z]+)?(?: +[A-Za-z]+(?:'[A-Za-z]+)?){1,5} *$", "default": "Microphone on" },
+            "speakersOff": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^ *[A-Za-z]+(?:'[A-Za-z]+)?(?: +[A-Za-z]+(?:'[A-Za-z]+)?){1,5} *$", "default": "Radio silence" },
+            "speakersOn": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^ *[A-Za-z]+(?:'[A-Za-z]+)?(?: +[A-Za-z]+(?:'[A-Za-z]+)?){1,5} *$", "default": "Sound on please" },
+            "hangUp": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^ *[A-Za-z]+(?:'[A-Za-z]+)?(?: +[A-Za-z]+(?:'[A-Za-z]+)?){1,5} *$", "default": "Hang up" },
+            "playMissedReplies": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^ *[A-Za-z]+(?:'[A-Za-z]+)?(?: +[A-Za-z]+(?:'[A-Za-z]+)?){1,5} *$", "default": "Replay messages" },
+            "stopPlayback": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^ *[A-Za-z]+(?:'[A-Za-z]+)?(?: +[A-Za-z]+(?:'[A-Za-z]+)?){1,5} *$", "default": "Stop the replay" }
+          },
+          "description": "Independent local English command phrases. Each contains 2 to 6 words and cannot overlap another phrase when commands are enabled."
+        },
         "phrase": { "type": "string", "minLength": 1, "maxLength": 48, "default": "Hey Dot" },
         "sensitivity": { "type": "integer", "minimum": 1, "maximum": 10, "default": 6 },
         "modelPath": { "type": "string", "default": "", "description": "Empty disables a model override; non-empty paths must be absolute." },

@@ -34,3 +34,17 @@ test('a concurrent route edit stays pending without blocking or losing the lates
   assert.deepEqual(idle.config, requested);
   assert.equal(idle.pending, false);
 });
+
+test('voice command opt-in and phrase edits apply during a call without changing its route or audio', () => {
+  const current = structuredClone(DEFAULTS), requested = structuredClone(DEFAULTS);
+  requested.wakeWord.commandsEnabled = true;
+  requested.wakeWord.commands.speakersOff = 'Radio silence';
+  requested.network.mediaLauncher = ['/usr/bin/example-route'];
+  requested.audio.bufferMs = 500;
+  const live = selectLiveConfig(current, requested, true);
+  assert.equal(live.config.wakeWord.commandsEnabled, true);
+  assert.equal(live.config.wakeWord.commands.speakersOff, 'Radio silence');
+  assert.deepEqual(live.config.network, current.network);
+  assert.deepEqual(live.config.audio, current.audio);
+  assert.equal(live.pending, true);
+});

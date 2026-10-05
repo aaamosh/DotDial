@@ -63,6 +63,24 @@ test('mac wake gives microphone ownership to Electron, streams bounded PCM and w
   await assert.rejects(f.captures[0].callbacks.onAudio(Buffer.alloc(4)), { code: 'wake_capture_cancelled' });
 });
 
+test('mac voice commands use argv while stdin stays binary PCM through idle replay', async t => {
+  const received = [], commands = { stopPlayback: 'Stop the replay' };
+  const f = fixture(t, { onCommand: action => received.push(action) });
+  f.manager.configure({ ...config, commandsEnabled: true, commands });
+  await until(() => f.children.length === 1);
+  const child = f.children[0];
+  assert.deepEqual(JSON.parse(child.args[child.args.indexOf('--commands-json') + 1]), commands);
+  child.ready(); f.captures[0].finish(); await tick();
+  const pcm = Buffer.alloc(6400); pcm.writeFloatLE(0.25);
+  await f.captures[0].callbacks.onAudio(pcm);
+  f.manager.setCallState({ state: 'ready', missed_playing: true });
+  child.wake();
+  child.stdout.emit('data', Buffer.from('{"event":"command","command":"stopPlayback"}\n'));
+  assert.deepEqual(received, ['stopPlayback']); assert.deepEqual(f.wakes, []);
+  assert.deepEqual(child.writes, [pcm]);
+  assert.equal(f.captures[0].closed, false);
+});
+
 test('denied mac permission does not launch Python or acquire a microphone', async t => {
   const f = fixture(t, { requestMicrophoneAccess: async () => false, findPython: () => assert.fail('must not probe') });
   f.manager.configure(config); await until(() => f.manager.status === 'error');

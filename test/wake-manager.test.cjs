@@ -45,6 +45,7 @@ class FakeChild extends EventEmitter {
   }
   ready() { this.stdout.emit('data', Buffer.from('{"event":"ready"}\n')); }
   wake() { this.stdout.emit('data', Buffer.from('{"event":"wake"}\n')); }
+  emitCommand(command) { this.stdout.emit('data', Buffer.from(JSON.stringify({ event: 'command', command }) + '\n')); }
 }
 
 function fixture(t, { model = true, onSpawn } = {}) {
@@ -65,9 +66,11 @@ function fixture(t, { model = true, onSpawn } = {}) {
   };
   const changes = [];
   const wakes = [];
+  const commands = [];
   const manager = new WakeManager({
     paths, spawn, platform: 'linux',
     onWake: () => wakes.push('wake'),
+    onCommand: value => commands.push(value),
     onChange: () => changes.push({ status: manager.status, error: manager.error }),
   });
   t.after(async () => {
@@ -75,7 +78,7 @@ function fixture(t, { model = true, onSpawn } = {}) {
     await manager.close();
     fs.rmSync(root, { recursive: true, force: true });
   });
-  return { root, dataDir, modelDir, children, changes, wakes, manager };
+  return { root, dataDir, modelDir, children, changes, wakes, commands, manager };
 }
 
 const enabledConfig = { enabled: true, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '' };
@@ -293,4 +296,46 @@ test('changing the phrase during a call replaces only the listener and ignores s
   assert.equal(f.manager.paused, false);
   assert.deepEqual(f.wakes, ['wake']);
   assert.equal(f.children.length, 2);
+});
+
+test('commands use structured argv, a bounded event set and the current ready listener only', async t => {
+  const f = fixture(t), commands = { microphoneOff: 'Mute microphone' };
+  f.manager.configure({ ...enabledConfig, commandsEnabled: true, commands });
+  await until(() => f.children.length === 1);
+  const child = f.children[0];
+  assert.deepEqual(JSON.parse(child.args[child.args.indexOf('--commands-json') + 1]), commands);
+  child.emitCommand('microphoneOff'); assert.deepEqual(f.commands, []);
+  child.ready();
+  for (const action of ['QUIT', 'WAKE', '__proto__', null]) child.emitCommand(action);
+  child.stdout.emit('data', Buffer.from('null\n'));
+  child.emitCommand('microphoneOff');
+  assert.deepEqual(f.commands, ['microphoneOff']);
+  f.manager.configure({ ...enabledConfig, commandsEnabled: false, commands });
+  child.emitCommand('microphoneOn');
+  await until(() => f.children.length === 2);
+  f.children[1].ready(); f.children[1].emitCommand('microphoneOn');
+  assert.deepEqual(f.commands, ['microphoneOff']);
+  assert.equal(f.children[1].args.includes('--commands-json'), false);
+});
+
+test('idle replay keeps command recognition but suppresses bare wake, and a live edit replaces phrases', async t => {
+  const f = fixture(t), commands = { stopPlayback: 'Stop the replay' };
+  let now = 1000; f.manager.now = () => now;
+  const config = { ...enabledConfig, commandsEnabled: true, commands };
+  f.manager.configure(config); await until(() => f.children.length === 1);
+  const old = f.children[0]; old.ready();
+  f.manager.setCallState({ state: 'ready', missed_playing: true });
+  old.wake(); old.emitCommand('stopPlayback');
+  assert.deepEqual(f.wakes, []); assert.deepEqual(f.commands, ['stopPlayback']);
+  assert.equal(f.manager.child, old);
+  f.manager.configure({ ...config, commands: { stopPlayback: 'Pause the party' } });
+  await until(() => f.children.length === 2);
+  const next = f.children[1]; next.ready(); old.emitCommand('microphoneOn');
+  assert.equal(JSON.parse(next.args[next.args.indexOf('--commands-json') + 1]).stopPlayback, 'Pause the party');
+  next.wake(); assert.deepEqual(f.wakes, []);
+  f.manager.setCallState({ state: 'ready', missed_playing: false });
+  next.wake(); assert.deepEqual(f.wakes, [], 'a recorded wake phrase finishing after replay cannot start a call');
+  now += 750;
+  next.wake(); assert.deepEqual(f.wakes, ['wake']);
+  assert.deepEqual(f.commands, ['stopPlayback']);
 });

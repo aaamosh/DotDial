@@ -1,39 +1,17 @@
-# DotDial 0.1.0-beta.3
+# DotDial 0.1.0-beta.4
 
-**Reliability update:** This release fixes asynchronous audio cancellation, missed-reply recording, call recovery, and first-run settings.
+**Leave the controls to your voice.** Start a call with your wake phrase, control your microphone and speakers, end the call, and catch up on missed replies without reaching for the keyboard.
 
-- A timed-out microphone request retires its media worker; a late capture cannot silently turn a muted call into a live microphone.
-- Hanging up cancels the call before replay can restore audio. Stopped replay stays stopped while output-device selection finishes.
-- Long saved replies split at the exact sample boundary and keep their FIFO order.
-- An account check that fails before call creation no longer locks out later calls. Unknown allocation outcomes remain protected against duplicate calls.
-- Status-file errors do not prevent remote cleanup. Config saving, wake setup, and account indicators have also been corrected.
+- Enable **Hands-free call commands** in **Settings → Voice**. Each action has its own short English phrase, editable in Settings or `wakeWord.commands` in the single JSON config.
+- Phrases take effect during a call without restarting DotDial or reconnecting. The app rejects overlapping phrases so a control command cannot first trigger the wake phrase.
+- Commands use the existing local English recognizer. No extra account, API key, speech upload, or microphone recording is added.
+- Microphone and speaker choices remain independent. Voice controls also stop missed-reply playback, and hanging up cancels unfinished audio actions.
+- Call commands are opt-in. Existing wake phrases, profiles, audio buffering, routes, three-button panel and saved panel position are retained on upgrade.
 
-The three-button panel, saved position, network routing, and existing sound choices are preserved. [Detailed fixes and verification](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3/docs/REVIEW_FIXES.md).
+Enable the optional local wake model first. Call microphone mute stops transmission to Dot; the local listener remains on while wake listening is enabled. Speech said before mute takes effect may reach Dot. Loudspeaker output can also be picked up by your microphone: choose distinct phrases or use a headset.
 
-**Say "Hey Dot." Leave the keyboard behind.**
+This Linux x86_64 beta includes automated configuration, command routing, cancellation, desktop and audio checks, plus offline recognition checks with synthetic English speech. Synthetic speech is a regression check, not a measure of accuracy across speakers, accents or rooms. The separately published [macOS Preview 2](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) remains available.
 
-Cooking, stretching, or thinking out loud on the sofa? DotDial lets you call your ChatGPT dot with your voice, from wherever your microphone can hear you. Set up the optional **Hey Dot** wake phrase and leave this small Linux app running in the tray. ChatGPT and Codex do not need to be installed or open; no API key is required.
+Download the Debian/Ubuntu `.deb` or Linux `.tar.gz` and check `SHA256SUMS`. Follow the [setup guide](https://github.com/aaamosh/DotDial#install-the-beta) for sign-in and your first call.
 
-## A few reasons to give it a call
-
-- **Your voice is the call button.** Start a conversation without touching the keyboard. Choose your own supported English wake phrase; changes take effect even during a call.
-- **Mute now. Catch up later.** While speakers are muted, incoming replies can be saved locally and played back in order. A reply deletes itself after full playback. It is a little answering machine for the moments when you need quiet.
-- **Rejoin without reaching for the laptop.** During a call, the wake phrase turns muted microphone and speakers back on, with a brief confirmation sound.
-- **Three buttons, right where you left them.** The floating panel has separate mic and speaker controls and a hang-up button, and remembers its screen position.
-- **Friendly to your coding agent.** Settings live in one ordinary JSON file. Agents can edit it with their usual tools and control a running call through the local CLI.
-
-## Your AI has a dial-up phase
-
-The default connection sound is **a real 14.4 kbps modem handshake recorded in 1997**. A small piece of internet history plays while your dot connects and stops when the call is ready.
-
-Love it? Keep it. Prefer something else? Choose telephone tones, your own **MP3 or WAV**, or switch call sounds off in **Settings → Voice**. Preview and volume controls are included. [Recording credits and CC0 license](https://github.com/aaamosh/DotDial/blob/v0.1.0-beta.3/THIRD_PARTY_NOTICES.md).
-
-## Get started
-
-Download the `.deb` for Debian/Ubuntu or the Linux x86_64 `.tar.gz` below. [Follow the installation and first-call guide](https://github.com/aaamosh/DotDial#install-the-beta), paste your existing dot's URL, and sign in with the account that has access to it.
-
-Wake-word detection is off by default and requires the optional English model setup. It runs locally, including during calls with microphone transmission muted; range and sensitivity depend on your microphone, voice, and room. Saved replies stay on your device. DotDial does not archive microphone audio or create transcripts.
-
-Defaults use direct networking and no extra audio buffering. Additional buffering and separate network routes are available in settings when needed. The initial beta passed a live two-way call, muted-speaker recording and replay with completed-playback deletion, and real-voice **Hey Dot** activation on a separate Linux installation. This update adds isolated delay, crash, storage-failure, and audio-boundary regression checks. Wider hardware and desktop feedback is welcome.
-
-DotDial is an unofficial, experimental community project, not an OpenAI product. It requires an account that already has a dot and uses internal ChatGPT web routes rather than a supported public voice API. Those routes may change or stop working.
+DotDial is unofficial and experimental. It requires a ChatGPT account with an existing dot and uses internal web routes that may change.

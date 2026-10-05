@@ -21,7 +21,7 @@ const REVIEWED_BINARIES = new Map([
   ['docs/media/dotdial-preview-18s.mp4', 'a16902128a75db1e863b73ba0ab7a7f7a71d9b4efba93aafa2412da7b81381f7'],
   ['docs/images/panel.png', '31430168cd4cbac99ee08ab89c0ade7d492f16b20c0f856ad53390c58a9765ea'],
   ['docs/images/settings.png', 'edb01a28b3a48f38d3594e694db935001001fb708bcab8704b4ada6c05db397b'],
-  ['docs/images/voice.png', '3cb8ee69b1ce67d236e20de90b2d0ba85812c91fe059756b36b5ae175bf4b9e2'],
+  ['docs/images/voice.png', 'd2db61edfe1e464e24f137f0b68ec8861ceec0e9dce86f72267777c1476d82fc'],
   ['src/sounds/calling.wav', '0359ba1636107f1ee5cef6c87c2293d90391dad3580f3a51834a37ac44ba14ce'],
   ['src/sounds/connected.wav', '494831a4b41279a9191ae854cf8c347f7d2cd6adcf777afb448e3ea3f3532eb5'],
   ['src/sounds/activated.wav', '6a08aab9c1c422f2e218379f09cfe09398b046a77ac57078182bfe3bfd174e3a'],

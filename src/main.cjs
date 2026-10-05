@@ -21,6 +21,7 @@ async function boot() {
   const { createWebRecovery } = require('./web_recovery.cjs');
   const { selectLiveConfig } = require('./live_config.cjs');
   const { installQuitBarrier } = require('./quit_guard.cjs');
+  const { VoiceCommands, VOICE_COMMANDS } = require('./voice_commands.cjs');
   const { createMicrophonePermission, createLoginItemController, isCustomMacLaunch, installMacApplicationMenu, secureRuntimeDirectory } = require('./macos.cjs');
   const option = name => process.argv.find(v => v.startsWith(`--${name}=`))?.slice(name.length + 3);
   const demo = process.argv.includes('--demo');
@@ -55,7 +56,7 @@ async function boot() {
   if (!app.requestSingleInstanceLock()) { app.exit(0); return; }
   if (process.platform === 'darwin') app.setActivationPolicy('regular');
 
-  let desktop, controller, mailbox, missedPlayer, audioControls, sounds, customSounds, wakeManager, webSession, server;
+  let desktop, controller, mailbox, missedPlayer, audioControls, sounds, customSounds, wakeManager, voiceCommands, webSession, server;
   let soundPreview = false, previewGeneration = 0;
   let loginWindow, pageReady, pageFailed = false, identityEpoch = 0, shuttingDown = false;
   let configPending = false, configError = null, wakeEpoch = 0, hotkeyAvailable = true, applyingConfig = false;
@@ -90,6 +91,7 @@ async function boot() {
       demo, configured: !!config.dot.url, config_hash: snapshot.hash, config_pending: configPending, config_error: configError,
       wake_status: wakeManager?.status || 'disabled', wake_listening: wakeManager?.status === 'listening', wake_error: wakeManager?.error || null,
       wake_phrase: wakeManager?.config?.phrase || config.wakeWord.phrase,
+      voice_commands_enabled: config.wakeWord.enabled && config.wakeWord.commandsEnabled,
       web_verifying: webVerifying, web_action_required: webActionRequired,
       status_persistence_error: statusPersistenceError,
       identity_verified: !!verifiedIdentity && verifiedIdentity.epoch === identityEpoch,
@@ -276,6 +278,7 @@ async function boot() {
       // Publish the saved revision even if call-sensitive settings are pending.
       // A duplicate file-watch event must not invent pending changes.
       snapshot = next;
+      if (JSON.stringify(config.wakeWord) !== JSON.stringify(update.config.wakeWord)) voiceCommands?.cancel();
       wakeManager?.configure(update.config.wakeWord, { inputDeviceId: update.config.audio.microphoneDeviceId });
       if (busy() || mailbox?.playing) {
         config = update.config;
@@ -341,10 +344,10 @@ async function boot() {
       return { inputs: [{ id: 'default', label: 'System microphone' }, ...list.filter(d => d.kind === 'audioinput')], outputs: [{ id: 'default', label: 'System speakers' }, ...list.filter(d => d.kind === 'audiooutput')] };
     } finally { w.destroy(); }
   }
-  async function requireCommandMicrophone(prompt, isCurrent) {
+  async function requireCommandMicrophone(prompt, isCurrent, offerSettings = true) {
     try { return await microphonePermission.requireAccess({ prompt, isCurrent }); }
     catch (error) {
-      if (!prompt && error.code === 'microphone_permission_required' && !shuttingDown) {
+      if (!prompt && offerSettings && error.code === 'microphone_permission_required' && !shuttingDown) {
         // The CLI's socket has a short response deadline. Show native consent,
         // return immediately, and require a fresh command after permission.
         desktop?.openSettings();
@@ -353,7 +356,8 @@ async function boot() {
       throw error;
     }
   }
-  async function command(name, { promptMicrophone = true } = {}) {
+  async function command(name, { promptMicrophone = true, fromVoice = false } = {}) {
+    if (!fromVoice && ['WAKE', 'QUIT', 'MISSED_CLEAR', ...Object.values(VOICE_COMMANDS)].includes(name)) voiceCommands?.cancel();
     if (name === 'QUIT') { app.quit(); return { status: 'quitting' }; }
     if (name === 'STATUS') return state();
     if (name === 'SETTINGS') { desktop.openSettings(); return { status: 'settings_opened' }; }
@@ -371,7 +375,7 @@ async function boot() {
       return { status: 'login_opened' };
     }
     if (name === 'WAKE_SETUP') {
-      if (process.platform === 'darwin' && !await requireCommandMicrophone(promptMicrophone, () => !shuttingDown)) return { status: 'cancelled' };
+      if (process.platform === 'darwin' && !await requireCommandMicrophone(promptMicrophone, () => !shuttingDown, !fromVoice)) return { status: 'cancelled' };
       return wakeManager.install();
     }
     if (name === 'WAKE') {
@@ -380,7 +384,7 @@ async function boot() {
         if (process.platform !== 'darwin' || controller.capture) return audioControls.activate(() => sounds.play('activated'));
         const peer = controller.peer, intent = ++microphoneIntent;
         const current = () => intent === microphoneIntent && controller.peer === peer && controller.state === 'active' && !controller.cancelled && !shuttingDown;
-        if (!controller.capture && !await requireCommandMicrophone(promptMicrophone, current)) return { status: 'cancelled' };
+        if (!controller.capture && !await requireCommandMicrophone(promptMicrophone, current, !fromVoice)) return { status: 'cancelled' };
         if (!current()) return { status: 'cancelled' };
         return audioControls.activate(() => sounds.play('activated'));
       }
@@ -389,7 +393,7 @@ async function boot() {
       const ticket = ++wakeEpoch, intent = ++microphoneIntent; callPreparing = true; publish();
       try {
         const current = () => ticket === wakeEpoch && (process.platform !== 'darwin' || intent === microphoneIntent) && !shuttingDown;
-        if (process.platform === 'darwin' && !config.audio.microphoneInitiallyMuted && !await requireCommandMicrophone(promptMicrophone, current)) return { status: 'cancelled' };
+        if (process.platform === 'darwin' && !config.audio.microphoneInitiallyMuted && !await requireCommandMicrophone(promptMicrophone, current, !fromVoice)) return { status: 'cancelled' };
         if (!current()) return { status: 'cancelled' };
         if (mailbox.playing) await mailbox.stop();
         if (!current()) return { status: 'cancelled' };
@@ -407,7 +411,7 @@ async function boot() {
       if (process.platform !== 'darwin' || controller.state !== 'active' || controller.capture || mailbox.playing) return audioControls.microphone(true);
       const peer = controller.peer, intent = ++microphoneIntent;
       const current = () => intent === microphoneIntent && controller.peer === peer && controller.state === 'active' && !controller.cancelled && !shuttingDown;
-      if (!await requireCommandMicrophone(promptMicrophone, current)) return { status: 'cancelled' };
+      if (!await requireCommandMicrophone(promptMicrophone, current, !fromVoice)) return { status: 'cancelled' };
       if (!current()) return { status: 'cancelled' };
       return audioControls.microphone(true);
     }
@@ -458,12 +462,15 @@ async function boot() {
         cue: which => sounds.play(which), publish,
       });
       audioControls = new CallAudioControls({ mailbox, controller });
+      voiceCommands = new VoiceCommands({ getState: state, getCallIdentity: () => controller.peer,
+        dispatch: name => command(name, { promptMicrophone: false, fromVoice: true }) });
       const { WakeManager } = require('./wake-manager.cjs');
       const { createWakeCaptureFactory } = require('./wake_capture.cjs');
       wakeManager = new WakeManager({ paths,
         captureFactory: process.platform === 'darwin' ? createWakeCaptureFactory({ BrowserWindow, session, ipcMain, getMicrophoneDeviceId: () => config.audio.microphoneDeviceId }) : undefined,
         requestMicrophoneAccess: () => microphonePermission.requireAccess(),
-        onWake: () => { void command('WAKE', { promptMicrophone: false }).catch(() => {}); }, onChange: () => desktop?.update(state()) });
+        onWake: () => { voiceCommands.cancel(); void command('WAKE', { promptMicrophone: false, fromVoice: true }).catch(() => {}); },
+        onCommand: action => { void voiceCommands.handle(action).catch(() => {}); }, onChange: () => desktop?.update(state()) });
       await controller.recover();
       if (config.dot.url) void openLogin(false).catch(() => {});
     }
@@ -487,6 +494,7 @@ async function boot() {
   app.on('second-instance', () => desktop?.openSettings());
   installQuitBarrier(app, () => {
     shuttingDown = true;
+    voiceCommands?.cancel();
     void (async () => {
       clearTimeout(demoCallTimer); globalShortcut.unregisterAll(); fs.unwatchFile(paths.configFile); wakeEpoch++; microphoneIntent++;
       await wakeManager?.close();

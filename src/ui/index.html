@@ -76,6 +76,22 @@
               <div class="field-grid two-col indented-fields" id="wake-fields">
                 <label class="field"><span class="field-label" data-i18n="wakePhrase">Wake phrase</span><input id="wake-phrase" type="text" maxlength="48" autocomplete="off" placeholder="Hey Dot"><span class="field-hint" data-i18n="wakePhraseHint">Keep it short and distinct from everyday conversation.</span></label>
                 <label class="field"><span class="field-label" data-i18n="sensitivity">Sensitivity</span><div class="range-row"><input id="wake-sensitivity" type="range" min="1" max="10" step="1"><output id="wake-sensitivity-value">6</output></div><span class="field-hint" data-i18n="sensitivityHint">Higher values make wake-ups more frequent.</span></label>
+                <div class="field full-field">
+                  <span class="field-label" data-i18n="voiceCommandsLabel">Hands-free call commands</span>
+                  <div class="toggle-line"><span data-i18n="voiceCommandsHint">Control the call with short English phrases. Local listening stays on when the call mic is muted.</span><label class="switch"><input id="wake-commands-enabled" type="checkbox" aria-label="Enable hands-free call commands"><span class="switch-track"></span></label></div>
+                  <div id="wake-command-options" hidden>
+                    <div class="field-grid two-col" id="wake-command-fields" aria-disabled="true">
+                      <label class="field"><span class="field-label" data-i18n="commandMicrophoneOff">Turn microphone off</span><input id="wake-command-microphone-off" type="text" maxlength="80" autocomplete="off"></label>
+                      <label class="field"><span class="field-label" data-i18n="commandMicrophoneOn">Turn microphone on</span><input id="wake-command-microphone-on" type="text" maxlength="80" autocomplete="off"></label>
+                      <label class="field"><span class="field-label" data-i18n="commandSpeakersOff">Turn speakers off</span><input id="wake-command-speakers-off" type="text" maxlength="80" autocomplete="off"></label>
+                      <label class="field"><span class="field-label" data-i18n="commandSpeakersOn">Turn speakers on</span><input id="wake-command-speakers-on" type="text" maxlength="80" autocomplete="off"></label>
+                      <label class="field"><span class="field-label" data-i18n="commandHangUp">End call</span><input id="wake-command-hang-up" type="text" maxlength="80" autocomplete="off"></label>
+                      <label class="field"><span class="field-label" data-i18n="commandPlayMissedReplies">Play missed replies</span><input id="wake-command-play-missed-replies" type="text" maxlength="80" autocomplete="off"></label>
+                      <label class="field"><span class="field-label" data-i18n="commandStopPlayback">Stop playback</span><input id="wake-command-stop-playback" type="text" maxlength="80" autocomplete="off"></label>
+                    </div>
+                    <span class="field-hint" data-i18n="voiceCommandsHintTail">Each phrase must be 2–6 English words and differ from the other phrases. Room audio may still reach the mic; a headset and distinct phrases can reduce accidental matches. Commands may also reach your Dot when the call mic is on.</span>
+                  </div>
+                </div>
                 <label class="field full-field"><span class="field-label" data-i18n="wakeModel">Recognition model</span><input id="wake-model-path" type="text" maxlength="4096" autocomplete="off" placeholder="Auto-installed"><span class="field-hint" id="wake-model-hint" data-i18n="wakeModelHint">DotDial can install the local model and its dependencies.</span></label>
                 <label class="field full-field"><span class="field-label" data-i18n="pythonPath">Python interpreter</span><input id="wake-python-path" type="text" maxlength="256" autocomplete="off" placeholder="python3"><span class="field-hint" data-i18n="pythonPathHint">Used only by local wake-word support. Example: python3.</span></label>
                 <div class="field full-field setup-model-row"><button id="wake-setup" class="secondary-button" type="button"><span class="button-icon">↓</span><span data-i18n="installWakeModel">Install or check wake-word support</span></button><span id="wake-setup-status" class="status-note"></span></div>

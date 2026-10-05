@@ -25,6 +25,12 @@ const COPY = {
     wakeWordDescription: 'Wake-word recognition runs locally on this computer. The bundled model recognizes English phrases.', wakePhrase: 'Wake phrase',
     wakePhraseHint: 'Use a short English phrase, such as “Hey Dot”, that sounds different from everyday conversation.', sensitivity: 'Sensitivity',
     sensitivityHint: 'Higher sensitivity can wake up more often by mistake.', wakeModel: 'Recognition model',
+    voiceCommandsLabel: 'Hands-free call commands',
+    voiceCommandsHint: 'Control the call with short English phrases. Local listening stays on when the call mic is muted.',
+    voiceCommandsHintTail: 'Each phrase must be 2–6 English words and differ from the other phrases. Room audio may still reach the mic; a headset and distinct phrases can reduce accidental matches. Commands may also reach your Dot when the call mic is on.',
+    commandMicrophoneOff: 'Turn microphone off', commandMicrophoneOn: 'Turn microphone on',
+    commandSpeakersOff: 'Turn speakers off', commandSpeakersOn: 'Turn speakers on',
+    commandHangUp: 'End call', commandPlayMissedReplies: 'Play missed replies', commandStopPlayback: 'Stop playback',
     wakeModelHint: 'DotDial can install the local model and its dependencies.', installWakeModel: 'Install or check wake-word support',
     pythonPath: 'Python interpreter', pythonPathHint: 'Used only by local wake-word support. Example: python3.',
     audioDevices: 'Audio devices', deviceHelp: 'Call device names are requested only when you press Scan devices.',
@@ -134,7 +140,15 @@ const DEFAULTS = {
   dot: { url: '', displayName: 'My dot', expectedEmail: '' },
   general: { startAtLogin: false, hotkey: isMac ? 'Command+Shift+Space' : 'CommandOrControl+Alt+Space' },
   audio: { bufferMs: 0, microphoneDeviceId: 'default', outputDeviceId: 'default', sounds: true, connectionSound: 'modem', customSoundPath: '', soundVolume: .55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false },
-  wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '' },
+  wakeWord: {
+    enabled: false, commandsEnabled: false,
+    commands: {
+      microphoneOff: 'Microphone off', microphoneOn: 'Microphone on',
+      speakersOff: 'Radio silence', speakersOn: 'Sound on please', hangUp: 'Hang up',
+      playMissedReplies: 'Replay messages', stopPlayback: 'Stop the replay',
+    },
+    phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '',
+  },
   recording: { enabled: true, maxMegabytes: 200 },
   appearance: { theme: 'system', panelOpacity: .86, showPanel: true, language: 'en' },
   network: { signalingProxy: '', signalingLauncher: [], mediaLauncher: [] },
@@ -254,6 +268,15 @@ function setWakeDeviceOptions(rows, selectedName = '', selectedHostApi = '') {
   }
   select.value = selected;
 }
+const WAKE_COMMAND_FIELDS = [
+  ['microphoneOff', 'wake-command-microphone-off'],
+  ['microphoneOn', 'wake-command-microphone-on'],
+  ['speakersOff', 'wake-command-speakers-off'],
+  ['speakersOn', 'wake-command-speakers-on'],
+  ['hangUp', 'wake-command-hang-up'],
+  ['playMissedReplies', 'wake-command-play-missed-replies'],
+  ['stopPlayback', 'wake-command-stop-playback'],
+];
 function fillForm(config) {
   const merged = mergeDefaults(config || {}, DEFAULTS);
   loadedConfig = merged; unsaved = false;
@@ -264,6 +287,7 @@ function fillForm(config) {
   assign('dot-expected-email', merged.dot.expectedEmail);
   assign('dot-url', merged.dot.url);
   assign('wake-phrase', merged.wakeWord.phrase);
+  for (const [key, id] of WAKE_COMMAND_FIELDS) assign(id, merged.wakeWord.commands[key]);
   assign('wake-sensitivity', merged.wakeWord.sensitivity);
   assign('wake-sensitivity-value', merged.wakeWord.sensitivity);
   assign('wake-model-path', merged.wakeWord.modelPath);
@@ -282,6 +306,7 @@ function fillForm(config) {
   assign('recording-max-mb', merged.recording.maxMegabytes);
   assign('call-max-minutes', merged.call.maxMinutes);
   check('wake-enabled', merged.wakeWord.enabled);
+  check('wake-commands-enabled', merged.wakeWord.commandsEnabled);
   check('audio-sounds', merged.audio.sounds);
   check('mic-initially-muted', merged.audio.microphoneInitiallyMuted);
   check('speakers-initially-muted', merged.audio.speakersInitiallyMuted);
@@ -296,6 +321,7 @@ function fillForm(config) {
   $('#wake-fields').classList.toggle('fields-disabled', !merged.wakeWord.enabled);
   $('#wake-fields').setAttribute('aria-disabled', String(!merged.wakeWord.enabled));
   setWakeControls(merged.wakeWord.enabled);
+  setWakeCommandControls(merged.wakeWord.enabled, merged.wakeWord.commandsEnabled);
   $('#sound-volume-field').classList.toggle('fields-disabled', !merged.audio.sounds);
   setSoundControls(merged.audio.sounds);
   renderSelectedSoundPath();
@@ -312,6 +338,19 @@ function setWakeControls(enabled) {
   $$('#wake-fields input, #wake-fields select, #wake-fields textarea, #wake-fields button').forEach(control => {
     if (!['wake-setup', 'wake-input', 'scan-wake-devices'].includes(control.id)) control.disabled = !enabled;
   });
+}
+function setWakeCommandControls(wakeEnabled, commandsEnabled) {
+  const group = $('#wake-command-fields');
+  const options = $('#wake-command-options');
+  if (options) options.hidden = !commandsEnabled;
+  if (group) {
+    group.classList.toggle('fields-disabled', !commandsEnabled);
+    group.setAttribute('aria-disabled', String(!wakeEnabled || !commandsEnabled));
+  }
+  for (const [, id] of WAKE_COMMAND_FIELDS) {
+    const input = $(`#${id}`);
+    if (input) input.disabled = !wakeEnabled || !commandsEnabled;
+  }
 }
 function setSoundControls(enabled) {
   const control = $('#audio-sound-volume');
@@ -467,6 +506,8 @@ function takeForm() {
   config.audio.microphoneInitiallyMuted = $('#mic-initially-muted').checked;
   config.audio.speakersInitiallyMuted = $('#speakers-initially-muted').checked;
   config.wakeWord.enabled = $('#wake-enabled').checked;
+  config.wakeWord.commandsEnabled = $('#wake-commands-enabled').checked;
+  for (const [key, id] of WAKE_COMMAND_FIELDS) config.wakeWord.commands[key] = $(`#${id}`).value;
   config.wakeWord.phrase = $('#wake-phrase').value.trim().slice(0, 48) || 'Hey Dot';
   config.wakeWord.sensitivity = Math.round(numeric('wake-sensitivity', 1, 10));
   config.wakeWord.modelPath = $('#wake-model-path').value.trim().slice(0, 4096);
@@ -814,6 +855,11 @@ function setupSettings() {
   $('#wake-enabled').addEventListener('change', event => {
     $('#wake-fields').classList.toggle('fields-disabled', !event.target.checked);
     setWakeControls(event.target.checked);
+    setWakeCommandControls(event.target.checked, $('#wake-commands-enabled').checked);
+    markUnsaved();
+  });
+  $('#wake-commands-enabled').addEventListener('change', event => {
+    setWakeCommandControls($('#wake-enabled').checked, event.target.checked);
     markUnsaved();
   });
   $('#audio-sounds').addEventListener('change', event => {

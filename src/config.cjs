@@ -30,6 +30,16 @@ const DEFAULTS = {
   },
   wakeWord: {
     enabled: false,
+    commandsEnabled: false,
+    commands: {
+      microphoneOff: 'Microphone off',
+      microphoneOn: 'Microphone on',
+      speakersOff: 'Radio silence',
+      speakersOn: 'Sound on please',
+      hangUp: 'Hang up',
+      playMissedReplies: 'Replay messages',
+      stopPlayback: 'Stop the replay',
+    },
     phrase: 'Hey Dot',
     sensitivity: 6,
     modelPath: '',
@@ -129,6 +139,36 @@ function requireString(value, field, { min = 0, max = 4096, allowEmpty = min ===
   if (!allowEmpty && value.trim().length < min) invalid(field, `must contain at least ${min} characters`);
 }
 
+function normalizeCommandPhrase(value, field) {
+  if (typeof value !== 'string' || value.length > 80 || !/^[A-Za-z' ]*$/u.test(value)) {
+    invalid(field, 'must be an English phrase of 2 to 6 words and at most 80 characters');
+  }
+  const normalized = value.trim().replace(/ +/gu, ' ');
+  const words = normalized ? normalized.split(' ') : [];
+  if (normalized.length > 80 || words.length < 2 || words.length > 6 ||
+      words.some(word => !/^[A-Za-z]+(?:'[A-Za-z]+)?$/u.test(word))) {
+    invalid(field, 'must be an English phrase of 2 to 6 words and at most 80 characters');
+  }
+  return normalized;
+}
+
+function phraseWords(value) {
+  return String(value).toLowerCase().match(/[a-z0-9]+(?:'[a-z]+)?/gu) || [];
+}
+
+function containsWordSequence(words, sequence) {
+  if (!sequence.length || sequence.length > words.length) return false;
+  for (let start = 0; start <= words.length - sequence.length; start++) {
+    if (sequence.every((word, offset) => words[start + offset] === word)) return true;
+  }
+  return false;
+}
+
+function phrasesOverlap(first, second) {
+  const a = phraseWords(first), b = phraseWords(second);
+  return containsWordSequence(a, b) || containsWordSequence(b, a);
+}
+
 function validateDotUrl(value) {
   requireString(value, 'dot.url', { max: 256 });
   if (value === '') return;
@@ -212,7 +252,22 @@ function validateConfig(input) {
   requireBoolean(config.audio.speakersInitiallyMuted, 'audio.speakersInitiallyMuted');
 
   requireBoolean(config.wakeWord.enabled, 'wakeWord.enabled');
+  requireBoolean(config.wakeWord.commandsEnabled, 'wakeWord.commandsEnabled');
+  for (const key of Object.keys(DEFAULTS.wakeWord.commands)) {
+    config.wakeWord.commands[key] = normalizeCommandPhrase(config.wakeWord.commands[key], `wakeWord.commands.${key}`);
+  }
   requireString(config.wakeWord.phrase, 'wakeWord.phrase', { min: 1, max: 48, allowEmpty: false });
+  if (config.wakeWord.commandsEnabled) {
+    const phrases = [['phrase', config.wakeWord.phrase],
+      ...Object.entries(config.wakeWord.commands).map(([key, phrase]) => [`commands.${key}`, phrase])];
+    for (let index = 0; index < phrases.length; index++) {
+      for (let other = index + 1; other < phrases.length; other++) {
+        if (phrasesOverlap(phrases[index][1], phrases[other][1])) {
+          invalid(`wakeWord.${phrases[other][0]}`, `must not contain or be contained in wakeWord.${phrases[index][0]} while voice commands are enabled`);
+        }
+      }
+    }
+  }
   requireInteger(config.wakeWord.sensitivity, 'wakeWord.sensitivity', 1, 10);
   requireString(config.wakeWord.modelPath, 'wakeWord.modelPath', { max: 4096 });
   if (config.wakeWord.modelPath && !path.isAbsolute(config.wakeWord.modelPath)) {

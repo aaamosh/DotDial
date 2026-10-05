@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { resolveWakeRuntime, findWakePython, wakeModelReady } = require('./wake-runtime.cjs');
+const { VOICE_COMMANDS } = require('./voice_commands.cjs');
 const failure = code => Object.assign(new Error(code), { code });
 const safeCode = (error, fallback = 'wake_failed') => /^[a-z_]{1,80}$/.test(error?.code || '') ? error.code : fallback;
 const MAX_QUEUED_PCM = 4 * 1600 * 4;
@@ -39,13 +40,15 @@ function waitForChildExit(child, timeoutMs = 1000) {
 }
 
 class WakeManager {
-  constructor({ paths, onWake, onChange = () => {}, spawn: spawnProcess = spawn,
+  constructor({ paths, onWake, onCommand = () => {}, onChange = () => {}, spawn: spawnProcess = spawn,
     platform = process.platform, captureFactory, requestMicrophoneAccess = async () => false,
-    findPython = findWakePython, startupTimeoutMs = 30000 }) {
-    Object.assign(this, { paths, onWake, onChange, spawn: spawnProcess, platform,
-      captureFactory, requestMicrophoneAccess, findPython, startupTimeoutMs });
+    findPython = findWakePython, startupTimeoutMs = 30000, now = () => performance.now() }) {
+    Object.assign(this, { paths, onWake, onCommand, onChange, spawn: spawnProcess, platform,
+      captureFactory, requestMicrophoneAccess, findPython, startupTimeoutMs, now });
     this.status = 'disabled'; this.error = null; this.paused = false; this.closed = false; this.generation = 0;
     this.capture = null; this.starting = null;
+    this.callState = {};
+    this.idleReplayTailUntil = 0;
     this.child = null; this.installer = null; this.installerCleanup = null; this.installerFinish = null;
     this.deviceScans = new Set(); this.installing = false; this.stopping = null; this.closing = null;
   }
@@ -55,6 +58,7 @@ class WakeManager {
     if (JSON.stringify(config) === JSON.stringify(this.config) && inputDeviceId === this.inputDeviceId) return;
     this.config = structuredClone(config);
     this.inputDeviceId = inputDeviceId;
+    if (this.callState.missed_playing && this.callState.state !== 'active') this.paused = config.commandsEnabled !== true;
     void this.stop().then(() => this.start());
   }
   setPaused(paused) {
@@ -64,9 +68,14 @@ class WakeManager {
     else this.start();
   }
   setCallState(state) {
-    // An active call can be reactivated by voice, including during local replay.
-    // Idle replay stays isolated so a recorded wake phrase cannot start a call.
-    this.setPaused(state.missed_playing === true && state.state !== 'active');
+    if (this.config?.commandsEnabled === true && this.callState.missed_playing && this.callState.state !== 'active' && !state.missed_playing) {
+      // A final recorded wake phrase may finish decoding after playback ends.
+      this.idleReplayTailUntil = this.now() + 750;
+    }
+    this.callState = { state: state.state, missed_playing: state.missed_playing === true };
+    // Commands keep local capture alive so replay can be stopped by voice.
+    // Bare wake detections during idle replay remain suppressed below.
+    this.setPaused(this.callState.missed_playing && state.state !== 'active' && this.config?.commandsEnabled !== true);
   }
   async pauseAndWait() { this.paused = true; this.restartAfterStop = false; await this.stop(); }
   runtime() {
@@ -164,6 +173,7 @@ class WakeManager {
     try {
       const args = [path.join(__dirname, 'wake', 'listener.py'), '--model', model,
         '--phrase', this.config.phrase, '--sensitivity', String(this.config.sensitivity)];
+      if (this.config.commandsEnabled === true) args.push('--commands-json', JSON.stringify(this.config.commands));
       if (stdinAudio) args.push('--stdin-audio');
       else if (this.config.deviceName && this.config.deviceHostApi) {
         args.push('--device-name', this.config.deviceName, '--device-host-api', this.config.deviceHostApi);
@@ -191,12 +201,17 @@ class WakeManager {
       if (buffer.length > 16384) { void this.stop({ status: 'error', error: 'wake_protocol_error' }); return; }
       const lines = buffer.split('\n'); buffer = lines.pop();
       for (const line of lines) {
+        if (generation !== this.generation) break;
         let event; try { event = JSON.parse(line); } catch { continue; }
+        if (!event || typeof event !== 'object') continue;
         if (event.event === 'ready') {
           if (stdinAudio) void this.startCapture(child, generation);
           else this.report('listening');
         }
-        if (event.event === 'wake' && !this.paused && this.status === 'listening') this.onWake();
+        if (event.event === 'wake' && !this.paused && this.status === 'listening' &&
+            !(this.callState.missed_playing && this.callState.state !== 'active') && this.now() >= this.idleReplayTailUntil) this.onWake();
+        if (event.event === 'command' && !this.paused && this.status === 'listening' &&
+            this.config.commandsEnabled === true && typeof event.command === 'string' && Object.hasOwn(VOICE_COMMANDS, event.command)) this.onCommand(event.command);
         if (event.event === 'error') {
           const code = /^[a-z_]+$/.test(event.code || '') ? event.code : 'wake_failed';
           if (stdinAudio) void this.stop({ status: 'error', error: code });

@@ -22,6 +22,16 @@
   },
   "wakeWord": {
     "enabled": false,
+    "commandsEnabled": false,
+    "commands": {
+      "microphoneOff": "Microphone off",
+      "microphoneOn": "Microphone on",
+      "speakersOff": "Radio silence",
+      "speakersOn": "Sound on please",
+      "hangUp": "Hang up",
+      "playMissedReplies": "Replay messages",
+      "stopPlayback": "Stop the replay"
+    },
     "phrase": "Hey Dot",
     "sensitivity": 6,
     "modelPath": "",

@@ -162,6 +162,27 @@ phrases. They do not measure recognition accuracy across speakers, accents,
 background noise or sensitivity settings. The speech test supplies PCM directly
 to Python; the separate pipeline test exercises Electron capture and IPC.
 
+## Voice command acceptance
+
+After installing local wake support, enable **Hands-free call commands** under
+**Settings → Voice**. Start a call with the configured wake phrase and check each
+command against its visible microphone, speaker, call or replay state. In particular,
+verify that microphone-on works while transmission is muted, speaker-off also stops
+local replay, and **Hang up** cancels dialing as well as an active call. Check replay
+after a call ends, including interruption without deleting an unfinished reply.
+
+Change one phrase during a call and verify that the new phrase replaces the old
+one without reconnecting. Disable call commands and verify that wake activation
+still works. Disabling wake listening must also disable command recognition.
+
+Offline speech fixtures must include leading and trailing silence, or use a
+continuous recording with timestamped expectations. Use fresh decoder streams
+for independent cases: a late result from the previous utterance must not be
+attributed to the next one. Check exact action labels, not just the presence of
+any recognition event. Include ordinary speech, a changed phrase and both mute
+directions. Synthetic speech does not establish accuracy for a physical microphone,
+accent, room or speaker echo.
+
 ## Native macOS acceptance
 
 On a real Mac of the target architecture, use Python 3.10–3.13 and the build

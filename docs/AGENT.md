@@ -74,6 +74,22 @@ Agent requests have a three-second timeout and responses are limited to 64 KiB. 
 
 The app notices external config edits within about a second. Invalid JSON leaves the last valid settings running and reports a config error. Wake-word edits take effect during calls and recovery without restarting the app or call. Other preferences that would affect a running call apply after it ends; changing `network.signalingLauncher` requires restarting DotDial.
 
+## Local voice commands
+
+`wakeWord.commandsEnabled` defaults to `false` and only takes effect while `wakeWord.enabled` is `true`. Set it to `true` to opt in to local call commands. Each `wakeWord.commands` value is an independent English phrase; say it directly without preceding it with the wake phrase. Phrases are customizable in Settings → Voice or in the config file:
+
+| Setting | Default phrase | Effect |
+| --- | --- | --- |
+| `wakeWord.commands.microphoneOff` | `Microphone off` | Mute call microphone transmission during a call |
+| `wakeWord.commands.microphoneOn` | `Microphone on` | Enable call microphone transmission during a call; interrupts saved-reply playback |
+| `wakeWord.commands.speakersOff` | `Radio silence` | Mute incoming voice, including saved-reply playback |
+| `wakeWord.commands.speakersOn` | `Sound on please` | Enable incoming voice |
+| `wakeWord.commands.hangUp` | `Hang up` | End an active call, cancel dialing, or stop saved-reply playback |
+| `wakeWord.commands.playMissedReplies` | `Replay messages` | Play saved replies in order, during a call or while idle |
+| `wakeWord.commands.stopPlayback` | `Stop the replay` | Stop saved-reply playback, during a call or while idle |
+
+Each phrase must contain 2–6 ASCII English words and be at most 80 characters. When commands are enabled, no phrase may contain another configured wake or command phrase as a whole-word sequence. The runtime trims surrounding spaces and collapses repeated spaces. The wake listener must be enabled for call commands to work. Commands cannot start a call; only the wake phrase keeps its existing call-start and in-call reactivation behavior. Command phrases take effect live during calls and saved-reply playback. If the call microphone is on, the spoken command may also be sent to the Dot as ordinary call audio; command recognition does not filter it from the outgoing microphone stream. When commands are disabled, the wake phrase retains its existing behavior.
+
 Device choices use `label:<device name>` rather than Chromium's profile-specific IDs. Scan in Settings to choose a device. If it is removed or its name is ambiguous, DotDial reports an error instead of silently choosing another microphone. `default` follows the operating system's default device. Device scanning does not start a microphone stream.
 
 ## macOS permissions and shortcuts

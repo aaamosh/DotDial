@@ -31,7 +31,15 @@ test('defaults match the versioned DotDial settings contract', () => {
       soundVolume: 0.55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false,
       connectionSound: 'modem', customSoundPath: '',
     },
-    wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '' },
+    wakeWord: {
+      enabled: false, commandsEnabled: false,
+      commands: {
+        microphoneOff: 'Microphone off', microphoneOn: 'Microphone on',
+        speakersOff: 'Radio silence', speakersOn: 'Sound on please', hangUp: 'Hang up',
+        playMissedReplies: 'Replay messages', stopPlayback: 'Stop the replay',
+      },
+      phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '',
+    },
     recording: { enabled: true, maxMegabytes: 200 },
     appearance: { theme: 'system', panelOpacity: 0.86, showPanel: true, language: 'en' },
     network: { signalingProxy: '', signalingLauncher: [], mediaLauncher: [] },
@@ -48,6 +56,16 @@ test('partial updates merge recursively and return an independent full config', 
   assert.equal(config.audio.sounds, true);
   config.dot.displayName = 'changed';
   assert.equal(defaults.dot.displayName, 'My dot');
+});
+
+test('legacy settings keep a colliding custom wake phrase usable with voice commands opted out', t => {
+  const file = path.join(tempDir(t), 'legacy.json');
+  fs.writeFileSync(file, JSON.stringify({ version: 1, wakeWord: { enabled: true, phrase: 'hang up' } }));
+  const loaded = loadConfigSnapshot(file).config;
+  assert.equal(loaded.wakeWord.enabled, true);
+  assert.equal(loaded.wakeWord.phrase, 'hang up');
+  assert.equal(loaded.wakeWord.commandsEnabled, false);
+  assert.equal(loaded.wakeWord.commands.hangUp, 'Hang up');
 });
 
 test('strict validation rejects unknown keys and invalid values with stable codes', () => {
@@ -68,6 +86,27 @@ test('strict validation rejects unknown keys and invalid values with stable code
   assert.throws(() => validateConfig({ wakeWord: { sensitivity: 0 } }), {
     code: 'DOTDIAL_CONFIG_INVALID', field: 'wakeWord.sensitivity',
   });
+  assert.throws(() => validateConfig({ wakeWord: { commandsEnabled: 'yes' } }), {
+    code: 'DOTDIAL_CONFIG_INVALID', field: 'wakeWord.commandsEnabled',
+  });
+  assert.equal(validateConfig({ wakeWord: { commandsEnabled: false } }).wakeWord.commandsEnabled, false);
+  assert.equal(validateConfig({ wakeWord: { commands: { microphoneOff: '  Mute   the   microphone  ' } } }).wakeWord.commands.microphoneOff, 'Mute the microphone');
+  for (const microphoneOff of ['mute', 'mute microphone now is really very quiet', 'mute microphone!', 'mute café', '\u00a0mute microphone']) {
+    assert.throws(() => validateConfig({ wakeWord: { commands: { microphoneOff } } }), {
+      code: 'DOTDIAL_CONFIG_INVALID', field: 'wakeWord.commands.microphoneOff',
+    });
+  }
+  assert.throws(() => validateConfig({ wakeWord: { commandsEnabled: true, commands: { microphoneOn: 'hang up now' } } }), {
+    code: 'DOTDIAL_CONFIG_INVALID', field: 'wakeWord.commands.hangUp',
+  });
+  assert.throws(() => validateConfig({ wakeWord: { commandsEnabled: true, phrase: 'HEY DOT', commands: { microphoneOff: 'please hey dot now' } } }), {
+    code: 'DOTDIAL_CONFIG_INVALID', field: 'wakeWord.commands.microphoneOff',
+  });
+  assert.throws(() => validateConfig({ wakeWord: { commandsEnabled: true, phrase: 'Hey-Dot', commands: { microphoneOff: 'Hey Dot microphone off' } } }), {
+    code: 'DOTDIAL_CONFIG_INVALID', field: 'wakeWord.commands.microphoneOff',
+  });
+  assert.equal(validateConfig({ wakeWord: { commandsEnabled: true, phrase: 'Hey 2', commands: { microphoneOff: 'Hey there now' } } }).wakeWord.phrase, 'Hey 2');
+  assert.equal(validateConfig({ wakeWord: { commandsEnabled: false, phrase: 'mute microphone', commands: { microphoneOff: 'mute microphone' } } }).wakeWord.commands.microphoneOff, 'mute microphone');
   assert.throws(() => validateConfig({ recording: { maxMegabytes: 0 } }), {
     code: 'DOTDIAL_CONFIG_INVALID', field: 'recording.maxMegabytes',
   });

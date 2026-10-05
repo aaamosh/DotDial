@@ -8,11 +8,11 @@
 
 | Platform | Release | Downloads |
 | --- | --- | --- |
-| Linux x86_64 | [0.1.0-beta.3](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3) | [Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/dotdial_0.1.0-beta.3_amd64.deb) · [Linux archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/DotDial-0.1.0-beta.3-linux-x64.tar.gz) |
+| Linux x86_64 | [0.1.0-beta.4](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.4) | [Debian/Ubuntu package](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.4/dotdial_0.1.0-beta.4_amd64.deb) · [Linux archive](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.4/DotDial-0.1.0-beta.4-linux-x64.tar.gz) |
 | macOS, Apple Silicon (`arm64`) | [Preview 2](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) | [DMG](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.2/DotDial-0.1.0-beta.3-preview-0b9924b0-macos-arm64.dmg) · [App ZIP](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.2/DotDial-0.1.0-beta.3-preview-0b9924b0-macos-arm64.app.zip) |
 | macOS, Intel (`x64`) | [Preview 2](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.2) | [DMG](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.2/DotDial-0.1.0-beta.3-preview-0b9924b0-macos-x64.dmg) · [App ZIP](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.2/DotDial-0.1.0-beta.3-preview-0b9924b0-macos-x64.app.zip) |
 
-SHA-256 checksums: [Linux](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/SHA256SUMS) · [macOS](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.2/SHA256SUMS). The macOS builds are early previews with ad-hoc signatures, without Apple Developer ID signing or notarization. See the [macOS installation notes](#macos-preview) before downloading.
+SHA-256 checksums: [Linux](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.4/SHA256SUMS) · [macOS](https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3-macos-preview.2/SHA256SUMS). The macOS builds are early previews with ad-hoc signatures, without Apple Developer ID signing or notarization. See the [macOS installation notes](#macos-preview) before downloading.
 
 Cooking, stretching, or thinking out loud on the sofa? Call your ChatGPT dot without reaching for your laptop. Once voice activation is set up, say **"Hey Dot"** from wherever your microphone can hear you. DotDial starts the call; you keep doing what you were doing.
 
@@ -23,6 +23,7 @@ DotDial lives in your Linux tray or, with the new macOS preview, your Mac's menu
 ## More conversation, less reaching for the laptop
 
 - **Your voice is the call button.** Enable the optional offline English wake word and call from the kitchen counter, the sofa, or across the room, within your microphone's range. Use **Hey Dot** or choose your own supported English phrase. Tray, menu-bar and hotkey controls are there too.
+- **A voice command for the controls, too.** Turn on optional local English phrases for microphone, speakers, hang up and saved replies. Say each phrase directly, without saying the wake phrase first; customize the phrases in Voice settings. The wake listener must be enabled, and voice commands are off by default.
 - **Mute now. Catch up later.** Need the room quiet? Mute DotDial's speakers and let it save incoming replies locally while recording is enabled. Play them all back in order when you are ready. Fully played replies delete themselves, like an answering machine that tidies up after you.
 - **Come back with a word.** During a call, the wake phrase turns a muted microphone and speakers back on, with a short confirmation sound. You can rejoin the conversation without touching the laptop.
 - **Three buttons, right where you left them.** A small floating panel gives you microphone mute, speaker mute, and hang up. Drag it where it suits you; it remembers its position next time.
@@ -54,7 +55,7 @@ The screenshots below and the 18-second video use the Linux synthetic demo. They
 
 Choose the **Linux x86_64 beta** or the **macOS preview for Apple Silicon or Intel**, and use a ChatGPT account that already has a dot. DotDial is an unofficial community project, not an OpenAI product. It uses internal ChatGPT web routes rather than a supported public voice API, so service changes can affect compatibility.
 
-Both releases use application version 0.1.0-beta.3 and bundle Electron 44.5.1. The Linux `.deb` is for Debian/Ubuntu; the Linux archive installer works on distributions with the required Electron desktop libraries.
+The Linux release uses application version 0.1.0-beta.4; the macOS preview remains application version 0.1.0-beta.3. Both bundle Electron 44.5.1. The Linux `.deb` is for Debian/Ubuntu; the Linux archive installer works on distributions with the required Electron desktop libraries.
 
 For an upgrade, choose **Quit** in the tray or menu bar before installing, then relaunch DotDial. Use the CLI from the same release as the desktop app; older and newer versions must not write the same config concurrently.
 
@@ -75,15 +76,15 @@ Read the [macOS installation, wake setup, local files and CLI guide](https://git
 ### Debian or Ubuntu
 
 ```sh
-curl -fL -o dotdial_0.1.0-beta.3_amd64.deb https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/dotdial_0.1.0-beta.3_amd64.deb
-sudo apt install ./dotdial_0.1.0-beta.3_amd64.deb
+curl -fL -o dotdial_0.1.0-beta.4_amd64.deb https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.4/dotdial_0.1.0-beta.4_amd64.deb
+sudo apt install ./dotdial_0.1.0-beta.4_amd64.deb
 ```
 
 ### Other Linux x86_64 distributions
 
 ```sh
-curl -fL -o DotDial-0.1.0-beta.3-linux-x64.tar.gz https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.3/DotDial-0.1.0-beta.3-linux-x64.tar.gz
-tar -xzf DotDial-0.1.0-beta.3-linux-x64.tar.gz
+curl -fL -o DotDial-0.1.0-beta.4-linux-x64.tar.gz https://github.com/aaamosh/DotDial/releases/download/v0.1.0-beta.4/DotDial-0.1.0-beta.4-linux-x64.tar.gz
+tar -xzf DotDial-0.1.0-beta.4-linux-x64.tar.gz
 ./DotDial-linux-x64/install.sh
 ```
 
@@ -103,7 +104,19 @@ Wake-word support is disabled by default. To enable it, open **Settings → Voic
 sudo apt install python3 python3-venv libportaudio2
 ```
 
-The example phrase is **Hey Dot**. Phrase and sensitivity changes apply immediately, including during a call. Sensitivity may need adjustment for your microphone and voice. From a source checkout, `npm run wake:setup` runs the same installer. See [third-party notices](THIRD_PARTY_NOTICES.md) for model and dependency details.
+The example wake phrase is **Hey Dot**. Phrase and sensitivity changes apply immediately, including during a call. Sensitivity may need adjustment for your microphone and voice. Voice commands are optional and off by default; enable wake listening and then turn on **Hands-free call commands** in **Settings → Voice**. Each command is an independent English phrase: say it directly without the wake phrase. Phrases are customizable and use 2–6 words. Commands run locally while wake listening is enabled, including when call microphone transmission is muted. Only the wake phrase starts a new call. When the call microphone is on, command words may also reach your Dot as ordinary audio.
+
+| Default phrase | Action |
+| --- | --- |
+| `Microphone off` | Mute the call microphone |
+| `Microphone on` | Turn on the call microphone |
+| `Radio silence` | Mute the speakers, including saved-reply playback |
+| `Sound on please` | Turn on the speakers |
+| `Hang up` | End a call, cancel dialing, or stop saved-reply playback |
+| `Replay messages` | Play missed replies in order, during a call or while idle |
+| `Stop the replay` | Stop saved-reply playback, during a call or while idle |
+
+From a source checkout, `npm run wake:setup` runs the same installer. See [third-party notices](THIRD_PARTY_NOTICES.md) for model and dependency details.
 
 ## Run from source
 
