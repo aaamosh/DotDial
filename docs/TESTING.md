@@ -202,7 +202,7 @@ The verifier requires every stage to pass:
 | `gui_media_capture` | The packaged GUI, preload, settings, panel and synthetic media capture work together. |
 | `packaged_worker` | The packaged media worker handles a local synthetic WebRTC session. |
 | `native_wake_decoder` | The packaged installer repairs a deliberately removed required file in isolated test data; its restored hash matches the original. Native Python dependencies then load the real model and the listener consumes synthetic PCM with a clean EOF. |
-| `native_wake_pipeline` | Electron capture, IPC and bounded PCM delivery reach the native Python listener, including pause/resume, stopped-reader cleanup and restart. |
+| `native_wake_pipeline` | Electron capture, IPC and bounded PCM delivery reach the native Python listener, including four pause/resume cycles, stopped-reader cleanup and restart. |
 | `native_wake_speech` | Generated speech produces the required positive and two negative recognition results described above. |
 | `disk_image` | The DMG is readable and contains the verified application and Applications shortcut. |
 
@@ -221,6 +221,28 @@ dependencies. An independently bounded process supervisor cleans up even if its
 Electron host crashes while the Python reader is stopped. Forced cleanup fails
 the stage. Passing signature and entitlement checks does not grant microphone
 permission or turn an ad-hoc signature into Developer ID signing or notarization.
+
+Each resumed capture must deliver 25 acknowledged PCM blocks within seven seconds.
+The established stream also has a cadence check: the interval between the first
+and twenty-fifth block must match its 2.4 seconds of PCM within 500 milliseconds.
+This excludes microphone startup and catches sustained slow rendering that can
+overflow the input FIFO even when the count-only deadline passes.
+The pipeline measures this deadline with a monotonic clock and records bounded
+PCM/acknowledgement timestamps together with the difference from wall-clock time.
+These observations distinguish a delayed first block, a stalled stream and a
+system-clock adjustment without reducing the required audio or extending the
+deadline. The standalone smoke defaults to one resume cycle; use
+`--resume-cycles 4` to match the native package verifier.
+
+For a targeted investigation, `--observe-audio-clock` adds a bounded, read-only
+Web Audio clock observer through Chromium's debugging protocol. Standard package
+acceptance leaves it off: PCM timing remains available without attaching a
+debugger to the capture window.
+
+Wake capture requests a silent sink and a 0.1-second latency hint. Chromium
+chooses the actual callback buffer from the device parameters; the hint is not
+an exact buffer duration. The PCM cadence and queue bounds above verify the
+resulting stream independently of that request.
 
 The macOS workflow runs natively on Apple Silicon and Intel. It preserves
 `build/macos-qa/<architecture>/` even when a check fails. Its progress report

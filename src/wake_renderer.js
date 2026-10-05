@@ -23,7 +23,9 @@
     const ticket = generation;
     let acquired, audioContext;
     try {
-      audioContext = new AudioContext({ sampleRate: 16000 });
+      // Wake analysis has no audible output. A modest buffer lets the silent
+      // sink's software clock keep up without a system playback device.
+      audioContext = new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' }, latencyHint: 0.1 });
       context = audioContext;
       if (audioContext.sampleRate !== 16000) throw failure('wake_audio_sample_rate');
       await audioContext.audioWorklet.addModule(new URL('./wake_worklet.js', document.baseURI).href);

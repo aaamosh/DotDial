@@ -7,7 +7,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { performance } = require('node:perf_hooks');
 const { app, BrowserWindow, session, ipcMain } = require('electron');
+const { observeWakeAudioClock } = require('./wake-pipeline-diagnostics.cjs');
 
 function option(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -16,11 +18,17 @@ function option(name, fallback) {
   if (!value || value.startsWith('--')) throw Error(`missing_value_for_${name}`);
   return value;
 }
+function parseResumeCycles(value) {
+  if (!/^[1-6]$/.test(value)) throw Error('resume_cycles_must_be_integer_1_to_6');
+  return Number(value);
+}
 const SOURCE = path.resolve(option('--app-source', path.join(__dirname, '..')));
 const dataArgument = option('--data-dir', process.env.DOTDIAL_WAKE_DATA_DIR);
 if (!dataArgument) throw Error('Use --data-dir PATH or DOTDIAL_WAKE_DATA_DIR with an installed wake environment.');
 const DATA = path.resolve(dataArgument);
 const OUTPUT = option('--output', null);
+const RESUME_CYCLES = parseResumeCycles(option('--resume-cycles', '1'));
+const OBSERVE_AUDIO_CLOCK = process.argv.includes('--observe-audio-clock');
 if (!['linux', 'darwin'].includes(process.platform)) throw Error('This smoke requires POSIX process signals.');
 if (process.getuid?.() === 0) throw Error('Run the Electron smoke as an unprivileged user.');
 const { WakeManager } = require(path.join(SOURCE, 'src', 'wake-manager.cjs'));
@@ -61,7 +69,9 @@ if (!builtinFakeAudio) app.commandLine.appendSwitch('use-file-for-fake-audio-cap
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.disableHardwareAcceleration();
 
-const started = Date.now(), children = [], captures = [], states = [], phases = [];
+const wallStarted = Date.now(), started = performance.now();
+const children = [], captures = [], states = [], phases = [];
+const elapsed = () => performance.now() - started;
 let manager, aborted = false, finishing = false, wakeEvents = 0;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function deadline(promise, ms, label) {
@@ -69,14 +79,23 @@ async function deadline(promise, ms, label) {
   try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error(label)), ms); })]); }
   finally { clearTimeout(timer); }
 }
-async function until(predicate, ms, label) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    if (aborted) throw Error('smoke_aborted');
-    if (predicate()) return;
-    await sleep(25);
+async function until(predicate, ms, label, observation = null) {
+  const beginning = performance.now(), end = beginning + ms;
+  if (observation) Object.assign(observation, { startedAtMs: beginning - started,
+    deadlineAtMs: end - started, budgetMs: ms, result: 'failed' });
+  try {
+    while (performance.now() < end) {
+      if (aborted) throw Error('smoke_aborted');
+      if (predicate()) {
+        if (observation) observation.result = 'passed';
+        return;
+      }
+      await sleep(Math.min(25, Math.max(0, end - performance.now())));
+    }
+    throw Error(label);
+  } finally {
+    if (observation) Object.assign(observation, { finishedAtMs: elapsed(), elapsedMs: performance.now() - beginning });
   }
-  throw Error(label);
 }
 function alive(child) { return child.exitCode === null && child.signalCode === null; }
 function observeChild(command, args, options) {
@@ -105,9 +124,17 @@ function observeChild(command, args, options) {
 }
 function observeCapture(factory, callbacks) {
   const record = { capture: null, chunks: 0, bytes: 0, acknowledged: 0, pending: 0, maxPending: 0,
-    maxQueuedBytes: 0, peak: 0, closed: false, callbacksAfterClose: 0, errors: [] };
+    maxQueuedBytes: 0, peak: 0, closed: false, callbacksAfterClose: 0, errors: [],
+    timing: { createdAtMs: elapsed(), readyAtMs: null, firstPcmAtMs: null, lastPcmAtMs: null,
+      firstAckAtMs: null, lastAckAtMs: null, maxPcmGapMs: 0, maxAckGapMs: 0,
+      maxAckLatencyMs: 0, chunks: [], observation: null } };
   const capture = factory({
     onAudio: async pcm => {
+      const pcmAtMs = elapsed(), timing = record.timing;
+      if (timing.lastPcmAtMs !== null) timing.maxPcmGapMs = Math.max(timing.maxPcmGapMs, pcmAtMs - timing.lastPcmAtMs);
+      timing.firstPcmAtMs ??= pcmAtMs; timing.lastPcmAtMs = pcmAtMs;
+      const sample = timing.chunks.length < 32 ? { chunk: record.chunks + 1, pcmAtMs, ackAtMs: null } : null;
+      if (sample) timing.chunks.push(sample);
       if (record.closed) record.callbacksAfterClose++;
       assert.equal(pcm.length, CHUNK_BYTES);
       for (let offset = 0; offset < pcm.length; offset += 4) {
@@ -122,14 +149,41 @@ function observeCapture(factory, callbacks) {
         record.maxQueuedBytes = Math.max(record.maxQueuedBytes, manager.child?.stdin.writableLength || 0);
         await written;
         record.acknowledged++;
+        const ackAtMs = elapsed();
+        if (timing.lastAckAtMs !== null) timing.maxAckGapMs = Math.max(timing.maxAckGapMs, ackAtMs - timing.lastAckAtMs);
+        timing.firstAckAtMs ??= ackAtMs; timing.lastAckAtMs = ackAtMs;
+        timing.maxAckLatencyMs = Math.max(timing.maxAckLatencyMs, ackAtMs - pcmAtMs);
+        if (sample) sample.ackAtMs = ackAtMs;
       } finally { record.pending--; }
     },
     onError: code => { record.errors.push(code); callbacks.onError(code); },
   });
+  if (OBSERVE_AUDIO_CLOCK) {
+    const clockObserver = observeWakeAudioClock(capture.window.webContents, { now: elapsed });
+    const closeCapture = capture.close.bind(capture);
+    capture.close = () => {
+      record.audioClock = clockObserver.snapshot();
+      clockObserver.close();
+      return closeCapture();
+    };
+  }
   record.capture = capture;
+  capture.ready.then(() => { record.timing.readyAtMs = elapsed(); }, () => {});
   capture.window.once('closed', () => { record.closed = true; });
   captures.push(record);
   return capture;
+}
+function verifyPcmCadence(timing, chunks) {
+  const points = timing.chunks.slice(0, chunks);
+  assert.equal(points.length, chunks, 'the cadence check needs every observed PCM timestamp');
+  const expectedElapsedMs = (chunks - 1) * 100;
+  const elapsedMs = points.at(-1).pcmAtMs - points[0].pcmAtMs;
+  const driftMs = elapsedMs - expectedElapsedMs, toleranceMs = 500;
+  // Exclude acquisition/startup. The established stream must carry audio near
+  // real time: a slow consumer can overflow Chromium's microphone input FIFO.
+  timing.cadence = { expectedElapsedMs, elapsedMs, driftMs, toleranceMs,
+    result: Math.abs(driftMs) <= toleranceMs ? 'passed' : 'failed' };
+  assert.equal(timing.cadence.result, 'passed', 'real_pcm_clock_drift');
 }
 async function listening(index, chunks = 25) {
   await until(() => {
@@ -137,10 +191,12 @@ async function listening(index, chunks = 25) {
     return children.length === index + 1 && captures.length === index + 1 && manager.status === 'listening';
   }, 35000, 'listener_start_timeout');
   const child = children[index], capture = captures[index];
+  capture.timing.observation = { requestedChunks: chunks };
   await until(() => {
     if (manager.error || !alive(child.child)) throw Error(`live_pipeline_failed:${manager.error || 'detector_exited'}`);
     return capture.acknowledged >= chunks;
-  }, 7000, 'real_pcm_writes_missing');
+  }, 7000, 'real_pcm_writes_missing', capture.timing.observation);
+  verifyPcmCadence(capture.timing, chunks);
   assert.equal(child.ready, 1); assert.deepEqual(child.errors, []); assert.deepEqual(capture.errors, []);
   assert.ok(capture.peak >= 0.001, `real PCM must contain the synthetic input, observed peak ${capture.peak}`);
   assert.ok(capture.maxPending <= MAX_PENDING); assert.ok(capture.maxQueuedBytes <= MAX_QUEUED_BYTES);
@@ -166,10 +222,11 @@ async function finish(error) {
   }
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.destroy();
   if (children.some(record => !record.exited)) {
-    const end = Date.now() + 1000;
-    while (children.some(record => !record.exited) && Date.now() < end) await sleep(25);
+    const end = performance.now() + 1000;
+    while (children.some(record => !record.exited) && performance.now() < end) await sleep(25);
   }
   if (children.some(record => !record.exited || alive(record.child))) cleanupErrors.push('detector_not_reaped');
+  const elapsedMs = elapsed(), wallElapsedMs = Date.now() - wallStarted;
   const report = {
     wakePipelineSmoke: error || cleanupErrors.length ? 'failed' : 'passed',
     hostPlatform: process.platform, hostArch: process.arch, exercisedPath: 'macos_pcm', tccMocked: true,
@@ -180,9 +237,10 @@ async function finish(error) {
       : { kind: '440hz_sine_bursts', sampleRate: inputRate, seconds: 4, format: 'pcm16_wav' },
     physicalMicrophoneTested: false, accountCallTested: false, audibleOutputTested: false,
     sampleRate: 16000, channels: 1, sampleFormat: 'float32le', chunkBytes: CHUNK_BYTES,
-    wakeEvents, phases, states, elapsedMs: Date.now() - started,
-    captures: captures.map(({ chunks, bytes, acknowledged, maxPending, maxQueuedBytes, peak, closed, callbacksAfterClose, errors }) =>
-      ({ chunks, bytesSubmitted: bytes, writesAcknowledged: acknowledged, maxPending, maxQueuedBytes, peak, closed, callbacksAfterClose, errors })),
+    wakeEvents, phases, states, resumeCycles: RESUME_CYCLES, audioClockDiagnostics: OBSERVE_AUDIO_CLOCK, elapsedMs, wallElapsedMs,
+    wallMinusMonotonicMs: wallElapsedMs - elapsedMs,
+    captures: captures.map(({ chunks, bytes, acknowledged, maxPending, maxQueuedBytes, peak, closed, callbacksAfterClose, errors, timing, audioClock }) =>
+      ({ chunks, bytesSubmitted: bytes, writesAcknowledged: acknowledged, maxPending, maxQueuedBytes, peak, closed, callbacksAfterClose, errors, timing, audioClock })),
     detectors: children.map(({ pid, ready, wakes, errors, stderr, exited, code, signal }) => ({ pid, ready, wakes, errors, stderr, exited, code, signal })),
     captureWindowsRemaining: BrowserWindow.getAllWindows().length, cleanupErrors,
     ...(error ? { error: String(error.message || error).slice(0, 1000) } : {}),
@@ -208,38 +266,44 @@ void app.whenReady().then(async () => {
   manager = new WakeManager({ paths: { dataDir: DATA }, platform: 'darwin',
     requestMicrophoneAccess: async () => true, spawn: observeChild,
     captureFactory: callbacks => observeCapture(factory, callbacks), onWake: () => { wakeEvents++; },
-    onChange: () => { if (states.length < 40) states.push({ status: manager.status, error: manager.error, atMs: Date.now() - started }); },
+    onChange: () => { if (states.length < 40) states.push({ status: manager.status, error: manager.error, atMs: elapsed() }); },
   });
   manager.configure({ enabled: true, phrase: 'Hey Dot', sensitivity: 6, pythonPath: PYTHON, modelPath: MODEL_PATH,
     deviceName: '', deviceHostApi: '' }, { inputDeviceId: 'default' });
   const initial = await listening(0);
   phases.push({ name: 'real_pcm_to_detector', result: 'passed', acknowledgedBytes: initial.capture.acknowledged * CHUNK_BYTES });
 
-  const paused = manager.pauseAndWait();
-  assert.equal(initial.capture.capture.window.isDestroyed(), true, 'pause closes capture before waiting for Python');
-  await deadline(paused, 4000, 'pause_did_not_finish'); assertReaped(0);
-  const oldChunks = initial.capture.chunks;
-  manager.setPaused(false);
-  const resumed = await listening(1);
-  assert.notEqual(resumed.child.pid, initial.child.pid); assert.equal(initial.capture.chunks, oldChunks);
-  phases.push({ name: 'pause_and_resume', result: 'passed', oldDetectorReaped: true });
+  let resumed = initial;
+  const pauseCycles = [];
+  for (let cycle = 1; cycle <= RESUME_CYCLES; cycle++) {
+    const previous = resumed, paused = manager.pauseAndWait();
+    assert.equal(previous.capture.capture.window.isDestroyed(), true, 'pause closes capture before waiting for Python');
+    await deadline(paused, 4000, 'pause_did_not_finish'); assertReaped(cycle - 1);
+    const oldChunks = previous.capture.chunks;
+    manager.setPaused(false);
+    resumed = await listening(cycle);
+    assert.notEqual(resumed.child.pid, previous.child.pid); assert.equal(previous.capture.chunks, oldChunks);
+    pauseCycles.push({ cycle, previousCapture: cycle - 1, resumedCapture: cycle, oldDetectorReaped: true });
+  }
+  phases.push({ name: 'pause_and_resume', result: 'passed', oldDetectorReaped: true,
+    ...(RESUME_CYCLES > 1 ? { cycles: pauseCycles } : {}) });
 
-  const stalledAt = Date.now();
+  const stalledAt = performance.now();
   resumed.child.child.kill('SIGSTOP');
   await until(() => {
     if (manager.error && manager.error !== 'wake_audio_backpressure') throw Error(`unexpected_stall_error:${manager.error}`);
     return manager.status === 'error' && manager.error === 'wake_audio_backpressure';
   }, 30000, 'stalled_reader_did_not_apply_backpressure');
-  assertReaped(1);
+  assertReaped(RESUME_CYCLES);
   assert.equal(resumed.child.signal, 'SIGKILL', 'a stopped reader must be forcibly reaped after SIGTERM cannot run');
   assert.ok(resumed.capture.maxPending <= MAX_PENDING); assert.ok(resumed.capture.maxQueuedBytes <= MAX_QUEUED_BYTES);
   assert.deepEqual(resumed.capture.errors, ['wake_audio_backpressure']);
   phases.push({ name: 'real_stalled_reader', result: 'passed', signal: 'SIGSTOP', error: manager.error,
-    elapsedMs: Date.now() - stalledAt, detectorReaped: true, captureWindowDestroyed: true });
+    elapsedMs: performance.now() - stalledAt, detectorReaped: true, captureWindowDestroyed: true });
 
   manager.start();
-  await listening(2, 10);
-  await deadline(manager.close(), 4000, 'whole_pipeline_close_timeout'); assertReaped(2);
+  await listening(RESUME_CYCLES + 1, 10);
+  await deadline(manager.close(), 4000, 'whole_pipeline_close_timeout'); assertReaped(RESUME_CYCLES + 1);
   const finalChunks = captures.map(record => record.chunks);
   await sleep(350);
   assert.deepEqual(captures.map(record => record.chunks), finalChunks, 'no capture callbacks after whole-chain close');
