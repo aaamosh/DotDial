@@ -83,17 +83,29 @@ async function waitForSettingsVisible(window, timeoutMs = 5000) {
 }
 
 async function capture(window, outputDirectory, filename, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs;
-  let observed;
+  const started = Date.now(), deadline = started + timeoutMs;
+  let observed, lastSuccessfulRenderer;
+  let rendererProbeCount = 0;
   try {
     await until(async () => {
-      observed = await readinessSnapshot(window, Math.max(1, Math.min(500, deadline - Date.now())));
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) throw Error('packaged_capture_layout_not_ready');
+      rendererProbeCount++;
+      // A timed-out executeJavaScript can remain pending. Give this probe the
+      // remaining capture budget and stop on timeout instead of queuing another.
+      observed = await readinessSnapshot(window, remainingMs);
+      observed.elapsed_ms = Date.now() - started;
+      if (observed.document) lastSuccessfulRenderer = observed;
+      if (observed.rendererError === 'renderer_readiness_query_timeout') {
+        throw Error('packaged_capture_layout_not_ready');
+      }
       const document = observed.document;
       return document && document.fontsStatus !== 'loading' &&
         (!document.section || document.section.rectCount === 0 || Number(document.section.opacity) >= 0.99);
     }, 'packaged_capture_layout_not_ready', timeoutMs);
   } catch (error) {
-    error.captureReadiness = { stage: 'capture', filename, observed };
+    error.captureReadiness = { stage: 'capture', filename, observed, lastSuccessfulRenderer,
+      rendererProbeCount, elapsed_ms: Date.now() - started };
     throw error;
   }
   const image = await window.webContents.capturePage();

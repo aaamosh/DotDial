@@ -58,16 +58,42 @@ test('capture preserves font and opacity assertions and reports the last readine
   assert.deepEqual(result.readiness.document, state.document);
 });
 
-test('a stalled renderer query cannot leave screenshot readiness or its diagnostics unbounded', async () => {
+test('a stalled renderer query exhausts the capture budget without queuing another probe', async () => {
   const { window, state } = fixture();
   state.visible = true;
-  window.webContents.executeJavaScript = () => new Promise(() => {});
+  let probes = 0;
+  window.webContents.executeJavaScript = () => { probes++; return new Promise(() => {}); };
   const started = Date.now();
-  await assert.rejects(() => capture(window, undefined, 'settings.png', 20), error => {
+  // Longer than the old 500ms per-query cap: an unresolved query must still be
+  // the only renderer request made during this entire capture attempt.
+  await assert.rejects(() => capture(window, undefined, 'settings.png', 650), error => {
     assert.equal(error.message, 'packaged_capture_layout_not_ready');
     assert.equal(error.captureReadiness.observed.rendererError, 'renderer_readiness_query_timeout');
+    assert.equal(error.captureReadiness.rendererProbeCount, 1);
     return true;
   });
+  assert.equal(probes, 1);
   assert.equal(state.captures, 0);
-  assert.ok(Date.now() - started < 1000);
+  assert.ok(Date.now() - started < 2000);
+});
+
+test('a later stalled probe retains the previous successful renderer snapshot', async () => {
+  const { window, state } = fixture();
+  state.visible = true;
+  state.document.section.opacity = '0.3';
+  let probes = 0;
+  window.webContents.executeJavaScript = () => ++probes === 1 ?
+    Promise.resolve(structuredClone(state.document)) : new Promise(() => {});
+  await assert.rejects(() => capture(window, undefined, 'settings.png', 1000), error => {
+    assert.equal(error.message, 'packaged_capture_layout_not_ready');
+    const readiness = error.captureReadiness;
+    assert.equal(readiness.observed.rendererError, 'renderer_readiness_query_timeout');
+    assert.deepEqual(readiness.lastSuccessfulRenderer.document, state.document);
+    assert.equal(readiness.lastSuccessfulRenderer.window.visible, true);
+    assert.ok(readiness.lastSuccessfulRenderer.elapsed_ms <= readiness.observed.elapsed_ms);
+    assert.equal(readiness.rendererProbeCount, 2);
+    return true;
+  });
+  assert.equal(probes, 2);
+  assert.equal(state.captures, 0);
 });
