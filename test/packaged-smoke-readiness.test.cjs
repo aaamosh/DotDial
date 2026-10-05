@@ -2,7 +2,8 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { waitForSettingsVisible, capture } = require('../scripts/smoke-packaged.cjs');
+const vm = require('node:vm');
+const { waitForSettingsVisible, settingsReloadReadinessSource, capture } = require('../scripts/smoke-packaged.cjs');
 
 function fixture() {
   const state = { visible: false, captures: 0,
@@ -33,6 +34,29 @@ test('packaged smoke cannot drive settings or reload before the normal initial w
   state.visible = true; // Model only the app's normal ready-to-show handler.
   assert.equal((await ready).visible, true);
   assert.equal(interactionStarted, true);
+});
+
+test('persisted settings after reload require two fresh frames without rescheduling the marker', () => {
+  // Execute the actual probe with a controlled frame queue; this models callback
+  // ordering only and makes no claim about native rendering or compositor timing.
+  const frames = [], input = { value: 'Packaged smoke' };
+  const context = vm.createContext({ window: {}, document: { querySelector: () => input },
+    requestAnimationFrame: callback => frames.push(callback) });
+  const source = settingsReloadReadinessSource('first-reload');
+  const probe = () => vm.runInContext(source, context);
+  assert.equal(probe(), false, 'persisted DOM alone is insufficient');
+  assert.equal(probe(), false);
+  assert.equal(frames.length, 1, 'polls must not restart the frame marker');
+  frames.shift()();
+  assert.equal(probe(), false, 'the first frame alone is insufficient');
+  frames.shift()();
+  assert.equal(probe(), true);
+  input.value = 'not persisted';
+  assert.equal(probe(), false, 'frame readiness must preserve the persisted-value assertion');
+  input.value = 'Packaged smoke';
+  assert.equal(vm.runInContext(settingsReloadReadinessSource('second-reload'), context), false,
+    'a later reload cannot reuse the preceding frame marker');
+  assert.equal(frames.length, 1);
 });
 
 test('capture preserves font and opacity assertions and reports the last readiness state', async () => {

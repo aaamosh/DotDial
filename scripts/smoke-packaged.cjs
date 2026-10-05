@@ -82,6 +82,19 @@ async function waitForSettingsVisible(window, timeoutMs = 5000) {
   }
 }
 
+function settingsReloadReadinessSource(token = crypto.randomUUID()) {
+  return `(() => {
+    const token = ${JSON.stringify(token)};
+    let marker = window.__smokeReloadFrames;
+    if (marker?.token !== token) {
+      marker = window.__smokeReloadFrames = { token, ready: false };
+      requestAnimationFrame(() => requestAnimationFrame(() => { marker.ready = true; }));
+    }
+    return marker.ready === true &&
+      document.querySelector('#dot-display-name')?.value === 'Packaged smoke';
+  })()`;
+}
+
 async function capture(window, outputDirectory, filename, timeoutMs = 5000) {
   const started = Date.now(), deadline = started + timeoutMs;
   let observed, lastSuccessfulRenderer;
@@ -350,7 +363,10 @@ async function run() {
     const reloaded = new Promise(resolve => settings.webContents.once('did-finish-load', resolve));
     settings.webContents.reload();
     await reloaded;
-    await until(() => evaluate(settings, 'document.querySelector("#dot-display-name")?.value === "Packaged smoke"'),
+    // Install a fresh double-frame marker on the first poll after reload.
+    // It returns immediately; frame readiness shares the existing 12s DOM wait.
+    const reloadReadiness = settingsReloadReadinessSource();
+    await until(() => evaluate(settings, reloadReadiness),
       'packaged_settings_did_not_survive_reload');
     assert.deepEqual((await evaluate(settings, 'window.dotdial.readConfig()')).config, saved.config);
     const settingsCapture = await capture(settings, outputDirectory, 'settings.png');
@@ -415,4 +431,4 @@ async function run() {
   }
 }
 
-module.exports = { run, waitForSettingsVisible, capture };
+module.exports = { run, waitForSettingsVisible, settingsReloadReadinessSource, capture };

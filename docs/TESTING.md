@@ -187,7 +187,9 @@ The verifier requires every stage to pass:
 
 The packaged GUI smoke waits for the application to show its settings window
 before editing and reloading the form. DOM or preload readiness alone does not
-establish that the first window has appeared. Screenshot capture still requires
+establish that the first window has appeared. After reload, the existing page
+readiness wait also requires two fresh animation frames before starting the
+capture check. Screenshot capture still requires
 settled fonts, the active section's final opacity and nonempty pixels within its
 existing deadline. Its report includes bounded window, document and animation
 state so a rendering timeout can be diagnosed without bypassing the assertion.
