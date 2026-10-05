@@ -11,7 +11,7 @@ function harness({ getUserMedia, sendAudio } = {}) {
     return { getTracks: () => [track], getAudioTracks: () => [track] };
   }
   class Context {
-    constructor(options) { this.sampleRate = options.sampleRate; this.audioWorklet = { async addModule() {} }; this.destination = {}; contexts.push(this); }
+    constructor(options) { this.sampleRate = options.sampleRate; this.sinkId = structuredClone(options.sinkId); this.audioWorklet = { async addModule() {} }; this.destination = {}; contexts.push(this); }
     createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
     async resume() {} async close() { this.closed = true; }
   }
@@ -30,14 +30,17 @@ function harness({ getUserMedia, sendAudio } = {}) {
   return { api: globals.window.DotDialWake, nodes, contexts, tracks, constraints, deviceQueries, errors, payloads, newStream };
 }
 
-test('mac wake renderer uses selected input and resamples through a local 16 kHz AudioContext', async () => {
+test('mac wake renderer sends selected input through a silent 16 kHz context to the acknowledged PCM pipe', async () => {
   const h = harness(); await h.api.start('label:My Microphone');
   assert.equal(h.contexts[0].sampleRate, 16000);
+  assert.deepEqual(h.contexts[0].sinkId, { type: 'none' });
   assert.deepEqual(h.deviceQueries, [['label:My Microphone', 'audioinput']]);
   assert.equal(h.constraints[0].audio.deviceId.exact, 'exact-device');
   assert.equal(h.constraints[0].video, false);
-  h.nodes[0].port.onmessage({ data: { pcm: new ArrayBuffer(6400), sampleRate: 16000 } }); await tick();
+  const packet = { pcm: new Float32Array(1600).fill(0.125).buffer, sampleRate: 16000 };
+  h.nodes[0].port.onmessage({ data: packet }); await tick();
   assert.equal(h.payloads.length, 1); assert.deepEqual(h.errors, []);
+  assert.equal(h.payloads[0], packet, 'silent output must preserve the input PCM sent to Python');
   assert.equal(h.nodes[0].sent[0]?.type, 'ack');
   h.api.stop(); assert.equal(h.tracks[0].stopped, true); assert.equal(h.contexts[0].closed, true);
 });

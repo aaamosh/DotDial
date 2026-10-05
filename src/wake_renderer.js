@@ -23,7 +23,9 @@
     const ticket = generation;
     let acquired, audioContext;
     try {
-      audioContext = new AudioContext({ sampleRate: 16000 });
+      // Wake analysis has no audible output; its clock must not depend on the
+      // system playback device starting or continuing to render silence.
+      audioContext = new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' } });
       context = audioContext;
       if (audioContext.sampleRate !== 16000) throw failure('wake_audio_sample_rate');
       await audioContext.audioWorklet.addModule(new URL('./wake_worklet.js', document.baseURI).href);

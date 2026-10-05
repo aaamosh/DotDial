@@ -230,6 +230,11 @@ system-clock adjustment without reducing the required audio or extending the
 deadline. The standalone smoke defaults to one resume cycle; use
 `--resume-cycles 4` to match the native package verifier.
 
+For a targeted investigation, `--observe-audio-clock` adds a bounded, read-only
+Web Audio clock observer through Chromium's debugging protocol. Standard package
+acceptance leaves it off: PCM timing remains available without attaching a
+debugger to the capture window.
+
 The macOS workflow runs natively on Apple Silicon and Intel. It preserves
 `build/macos-qa/<architecture>/` even when a check fails. Its progress report
 records every required stage, so one successful check cannot hide a failed one.

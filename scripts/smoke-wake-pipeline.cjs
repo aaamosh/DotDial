@@ -28,6 +28,7 @@ if (!dataArgument) throw Error('Use --data-dir PATH or DOTDIAL_WAKE_DATA_DIR wit
 const DATA = path.resolve(dataArgument);
 const OUTPUT = option('--output', null);
 const RESUME_CYCLES = parseResumeCycles(option('--resume-cycles', '1'));
+const OBSERVE_AUDIO_CLOCK = process.argv.includes('--observe-audio-clock');
 if (!['linux', 'darwin'].includes(process.platform)) throw Error('This smoke requires POSIX process signals.');
 if (process.getuid?.() === 0) throw Error('Run the Electron smoke as an unprivileged user.');
 const { WakeManager } = require(path.join(SOURCE, 'src', 'wake-manager.cjs'));
@@ -157,13 +158,15 @@ function observeCapture(factory, callbacks) {
     },
     onError: code => { record.errors.push(code); callbacks.onError(code); },
   });
-  const clockObserver = observeWakeAudioClock(capture.window.webContents, { now: elapsed });
-  const closeCapture = capture.close.bind(capture);
-  capture.close = () => {
-    record.audioClock = clockObserver.snapshot();
-    clockObserver.close();
-    return closeCapture();
-  };
+  if (OBSERVE_AUDIO_CLOCK) {
+    const clockObserver = observeWakeAudioClock(capture.window.webContents, { now: elapsed });
+    const closeCapture = capture.close.bind(capture);
+    capture.close = () => {
+      record.audioClock = clockObserver.snapshot();
+      clockObserver.close();
+      return closeCapture();
+    };
+  }
   record.capture = capture;
   capture.ready.then(() => { record.timing.readyAtMs = elapsed(); }, () => {});
   capture.window.once('closed', () => { record.closed = true; });
@@ -221,7 +224,7 @@ async function finish(error) {
       : { kind: '440hz_sine_bursts', sampleRate: inputRate, seconds: 4, format: 'pcm16_wav' },
     physicalMicrophoneTested: false, accountCallTested: false, audibleOutputTested: false,
     sampleRate: 16000, channels: 1, sampleFormat: 'float32le', chunkBytes: CHUNK_BYTES,
-    wakeEvents, phases, states, resumeCycles: RESUME_CYCLES, elapsedMs, wallElapsedMs,
+    wakeEvents, phases, states, resumeCycles: RESUME_CYCLES, audioClockDiagnostics: OBSERVE_AUDIO_CLOCK, elapsedMs, wallElapsedMs,
     wallMinusMonotonicMs: wallElapsedMs - elapsedMs,
     captures: captures.map(({ chunks, bytes, acknowledged, maxPending, maxQueuedBytes, peak, closed, callbacksAfterClose, errors, timing, audioClock }) =>
       ({ chunks, bytesSubmitted: bytes, writesAcknowledged: acknowledged, maxPending, maxQueuedBytes, peak, closed, callbacksAfterClose, errors, timing, audioClock })),
