@@ -48,7 +48,7 @@ test('publication context accepts the exact subject and blocks nearby subjects, 
   assert.deepEqual(validateContext(env, event), context);
   assert.deepEqual(validateContext(env, { head_commit: { ...event.head_commit, message: PUBLISH_SUBJECT + '\n\nReviewed release.' } }), context);
   for (const message of [PUBLISH_SUBJECT + ' later', 'Do not ' + PUBLISH_SUBJECT, 'Routine build', PUBLISH_SUBJECT.toLowerCase(),
-    'Publish macOS preview 1 with bundled runtime notices']) {
+    'Publish macOS preview 1 with bundled runtime notices', 'Publish macOS preview 2 with silent wake audio sink']) {
     assert.throws(() => validateContext(env, { head_commit: { ...event.head_commit, message } }), /exact one-time/);
   }
   for (const change of [{ GITHUB_ACTIONS: 'false' }, { GITHUB_EVENT_NAME: 'pull_request' },
@@ -207,28 +207,33 @@ test('new publication creates a draft, verifies seven uploads, then publishes wi
   assert.equal(state.tag, sourceSha);
 });
 
-test('Preview 2 leaves the existing published Preview 1 and all of its assets untouched', async t => {
+test('beta.4 Mac publication leaves earlier Mac previews and the Linux release untouched', async t => {
   const input = await promotionFixture(t);
   const previousTag = 'v0.1.0-beta.3-macos-preview.1';
   const previousSha = '54889c5b04fe3dc32b79084d56bbec6e187a53de';
   const previousNames = ['arm64', 'x64'].flatMap(arch => ['.app.zip', '.dmg', '.manifest.json'].map(suffix =>
-    `DotDial-${VERSION}-preview-${previousSha.slice(0, 8)}-macos-${arch}${suffix}`));
+    `DotDial-0.1.0-beta.3-preview-${previousSha.slice(0, 8)}-macos-${arch}${suffix}`));
   previousNames.push('SHA256SUMS');
   const previousRelease = { id: 403612523, tag_name: previousTag, name: 'DotDial for macOS — Preview 1',
     target_commitish: previousSha, draft: false, prerelease: true, immutable: false,
     body: 'The previously published release notes must remain intact.',
     assets: previousNames.map((name, index) => ({ id: 7000 + index, name, state: 'uploaded', size: 1000 + index,
       digest: `sha256:${digest('previous release bytes: ' + name)}` })) };
-  assert.equal(TAG, 'v0.1.0-beta.3-macos-preview.2', 'this one-time publisher may address only the new tag');
-  const { client, state } = mockGitHub(input.assets, { otherReleases: [previousRelease] });
+  assert.equal(TAG, 'v0.1.0-beta.4-macos-preview.1', 'this one-time publisher may address only the new tag');
+  const others = [previousRelease,
+    { ...structuredClone(previousRelease), id: 403929410, tag_name: 'v0.1.0-beta.3-macos-preview.2',
+      target_commitish: '0b9924b014d4c46271647e95d97806811fb45229' },
+    { ...structuredClone(previousRelease), id: 404066277, tag_name: 'v0.1.0-beta.4',
+      target_commitish: '7fc4935a3fdc346197f6f6dd17ebd40a77b31008' }];
+  const { client, state } = mockGitHub(input.assets, { otherReleases: others });
   const result = await promoteRelease({ ...input, client });
   assert.equal(result.tag, TAG);
   assert.equal(result.alreadyPublished, false);
-  assert.deepEqual(state.otherReleases, [previousRelease], 'existing release metadata and every asset stay unchanged');
+  assert.deepEqual(state.otherReleases, others, 'existing release metadata and every asset stay unchanged');
   assert.equal(state.release.tag_name, TAG);
   assert.deepEqual(state.release.assets, input.assets.map(remoteAsset));
   for (const args of state.commands) {
-    assert.equal(args[2], TAG, 'every release mutation targets Preview 2');
+    assert.equal(args[2], TAG, 'every release mutation targets the new beta.4 Mac preview');
     assert.ok(!args.includes(previousTag));
   }
 });

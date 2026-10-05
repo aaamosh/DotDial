@@ -34,8 +34,9 @@ copy through the push event. For a branch without a pull request, open a draft
 pull request or request a manual run. Newer runs cancel older runs only for the
 same workflow, event and ref; a manual run does not cancel an automatic run.
 
-These workflows preserve build artifacts and reports. They do not publish
-GitHub releases. The completed one-time publisher for the first macOS preview
+Ordinary workflow runs preserve build artifacts and reports without publishing
+GitHub releases. A separate one-time beta.4 publication requires the exact main
+commit subject documented in [Releasing](RELEASING.md#macos-beta4-hands-free-preview). The completed one-time publisher for the first macOS preview
 is retained in the [released source](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/.github/workflows/macos.yml),
 and its script and regression tests remain in the repository. Removing that job
 from active CI does not change the public tag or released files.
@@ -225,6 +226,7 @@ The verifier requires every stage to pass:
 | `native_wake_decoder` | The packaged installer repairs a deliberately removed required file in isolated test data; its restored hash matches the original. Native Python dependencies then load the real model and the listener consumes synthetic PCM with a clean EOF. |
 | `native_wake_pipeline` | Electron capture, IPC and bounded PCM delivery reach the native Python listener, including four pause/resume cycles, stopped-reader cleanup and restart. |
 | `native_wake_speech` | Generated speech produces the required positive and two negative recognition results described above. |
+| `native_voice_commands` | Packaged native recognition and routing pass all twelve command, wake, custom-phrase and negative-control cases described below. |
 | `disk_image` | The DMG is readable and contains the verified application and Applications shortcut. |
 
 The packaged GUI smoke waits for the application to show its settings window
@@ -290,3 +292,24 @@ microphone unplug/reconnect, login startup, a spoken wake phrase and a real acco
 call. Run that session on macOS 13 Ventura as well as a current supported version;
 deployment metadata alone cannot substitute for a minimum-version runtime test.
 Keep private account data and recordings out of test artifacts.
+
+## macOS beta.4 hands-free acceptance
+
+Native macOS packages retain the previous eleven gates and require a twelfth:
+`native_voice_commands`. It invokes `scripts/smoke-macos-voice.cjs` through the
+bundled Electron Node runtime with the extracted app, private wake environment,
+pinned Flite fixture directory and a fresh report path. No Release asset is
+downloaded by this check.
+
+Twelve cases exercise the actual packaged Python listener and JavaScript routing:
+seven default commands; ordinary wake with commands enabled; unrelated speech;
+commands disabled; a custom microphone-off phrase; and rejection of the replaced
+phrase. Every case requires the exact ordered event sequence, matching dispatch,
+successful decoder EOF and clean capture/process teardown. Synthetic PCM replaces
+the capture callback and dispatch uses an isolated call state. This complements,
+not replaces, real Electron PCM pipeline, cancellation and hardware acceptance.
+
+`voice-commands.json` preserves results even on a failing case; `voice-fixtures/`
+contains generated WAVs linked by hashes to the report and pinned Flite binary.
+The CLI gate also checks seven opt-out command defaults, a saved phrase change
+and the native Command-Shift-Space shortcut without system Node.

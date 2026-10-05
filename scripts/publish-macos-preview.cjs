@@ -11,10 +11,10 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 
 const REPOSITORY = 'aaamosh/DotDial';
-const VERSION = '0.1.0-beta.3';
-const TAG = 'v0.1.0-beta.3-macos-preview.2';
-const TITLE = 'DotDial for macOS — Preview 2';
-const PUBLISH_SUBJECT = 'Publish macOS preview 2 with silent wake audio sink';
+const VERSION = '0.1.0-beta.4';
+const TAG = 'v0.1.0-beta.4-macos-preview.1';
+const TITLE = 'DotDial for macOS 0.1.0-beta.4 - Hands-free preview';
+const PUBLISH_SUBJECT = 'Publish macOS beta 4 preview with voice commands';
 const ARCHITECTURES = ['arm64', 'x64'];
 const API_ROOT = `/repos/${REPOSITORY}`;
 const SOURCE_PATTERN = /^[a-f0-9]{40}$/;
@@ -257,12 +257,12 @@ async function main(env = process.env) {
   const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
   const context = validateContext(env, event);
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  requireValue(pkg.name === 'dotdial' && pkg.version === VERSION, 'This publisher is restricted to the Preview 2 application version.');
+  requireValue(pkg.name === 'dotdial' && pkg.version === VERSION, 'This publisher is restricted to the beta.4 macOS preview application version.');
   const distribution = await validateArtifacts(path.join(root, 'build', 'macos-release'),
     { ...context, electronVersion: pkg.devDependencies.electron });
   const output = path.join(root, 'build', 'macos-promotion');
   const assets = await addCombinedChecksums(distribution, output);
-  const body = renderReleaseBody(fs.readFileSync(path.join(root, 'docs', 'releases', 'macos-preview-2.md'), 'utf8'), context);
+  const body = renderReleaseBody(fs.readFileSync(path.join(root, 'docs', 'releases', 'macos-beta4-preview-1.md'), 'utf8'), context);
   const notesFile = path.join(output, 'release-notes.md');
   fs.writeFileSync(notesFile, body, { mode: 0o644 });
   const result = await promoteRelease({ client: githubClient(env), context, assets, body, notesFile });

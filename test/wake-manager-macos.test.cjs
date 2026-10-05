@@ -64,7 +64,7 @@ test('mac wake gives microphone ownership to Electron, streams bounded PCM and w
 });
 
 test('mac voice commands use argv while stdin stays binary PCM through idle replay', async t => {
-  const received = [], commands = { stopPlayback: 'Stop the replay' };
+  const received = [], commands = require('../src/config.cjs').defaults.wakeWord.commands;
   const f = fixture(t, { onCommand: action => received.push(action) });
   f.manager.configure({ ...config, commandsEnabled: true, commands });
   await until(() => f.children.length === 1);
@@ -155,4 +155,36 @@ test('installing with a selected base Python starts the recognizer from its mana
   assert.deepEqual(probes, ['/selected/python3.12', localPython]);
   f.children[1].ready(); f.captures[0].finish(); await tick();
   assert.equal(f.manager.status, 'listening');
+});
+
+
+test('mac live command edits replace only the local decoder, reject stale labels and retain selected input', async t => {
+  const commands = require('../src/config.cjs').defaults.wakeWord.commands;
+  const received = [];
+  const f = fixture(t, { onCommand: action => received.push(action) });
+  const settings = { ...config, commandsEnabled: true, commands };
+  f.manager.setCallState({ state: 'active', missed_playing: false });
+  f.manager.configure(settings, { inputDeviceId: 'label:Private headset' });
+  await until(() => f.children.length === 1);
+  f.children[0].ready(); f.captures[0].finish(); await tick();
+  f.manager.configure({ ...settings, commands: { ...commands, microphoneOff: 'Disable microphone' } });
+  assert.equal(f.captures[0].closed, true);
+  await until(() => f.children.length === 2);
+  const previous = f.children[0], current = f.children[1];
+  const event = Buffer.from('{"event":"command","command":"microphoneOff"}\n');
+  previous.stdout.emit('data', event); current.stdout.emit('data', event);
+  assert.deepEqual(received, [], 'neither stale nor not-yet-listening commands execute');
+  current.ready(); f.captures[1].finish(); await tick();
+  current.stdout.emit('data', event);
+  assert.deepEqual(received, ['microphoneOff']);
+  assert.equal(f.manager.callState.state, 'active');
+  assert.equal(f.manager.inputDeviceId, 'label:Private headset');
+  assert.equal(JSON.parse(current.args[current.args.indexOf('--commands-json') + 1]).microphoneOff, 'Disable microphone');
+  await assert.rejects(f.captures[0].callbacks.onAudio(Buffer.alloc(6400)), { code: 'wake_capture_cancelled' });
+  f.manager.configure({ ...settings, commandsEnabled: false });
+  await until(() => f.children.length === 3);
+  f.children[2].ready(); f.captures[2].finish(); await tick();
+  f.children[2].stdout.emit('data', event);
+  assert.ok(!f.children[2].args.includes('--commands-json'));
+  assert.deepEqual(received, ['microphoneOff']);
 });
