@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { sha256, verifyBundle, BUNDLE_ID, MICROPHONE_DESCRIPTION } = require('./package-macos.cjs');
+const { sha256, verifyBundle, verifyElectronNotices, BUNDLE_ID, MICROPHONE_DESCRIPTION } = require('./package-macos.cjs');
 const { runPosixSmoke } = require('./posix-smoke-supervisor.cjs');
 const { verifyDeploymentTargets } = require('./macos-deployment-targets.cjs');
 const { verifySignatures } = require('./macos-signatures.cjs');
@@ -154,6 +154,9 @@ async function main() {
   assert.equal(manifest.codeSignature, 'ad-hoc');
   assert.equal(manifest.developerIDSigned, false);
   assert.equal(manifest.notarized, false);
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  assert.equal(manifest.electronVersion, pkg.devDependencies.electron, 'notice provenance uses the pinned runtime');
+  const electronDirectory = path.join(ROOT, 'node_modules', 'electron');
   if (process.env.GITHUB_SHA) assert.equal(manifest.sourceCommit, process.env.GITHUB_SHA);
   if (process.env.CI) assert.equal(manifest.sourceDirty, false, 'CI must package the committed tree');
   const checksums = await verifyArtifactChecksums(directory, [zip, dmg, sidecar]);
@@ -193,6 +196,9 @@ async function main() {
     // Collect every required result. The pipeline uses the decoder stage's
     // managed environment; a failed prerequisite cannot turn that gate green.
     await runRequiredStages([
+      ['electron_notices', async () => {
+        evidence.electronNotices = verifyElectronNotices(bundle, electronDirectory, manifest.electronVersion);
+      }],
       ['deployment_targets', async () => {
         evidence.deploymentTargets = verifyDeploymentTargets(bundle, {
           architecture: manifest.architecture, minimumMacOS: manifest.minimumMacOS,
@@ -322,9 +328,10 @@ async function main() {
         mounted = true;
         const diskBundle = path.join(mount, 'DotDial.app');
         verifyBundle(diskBundle, manifest);
+        const electronNotices = verifyElectronNotices(diskBundle, electronDirectory, manifest.electronVersion);
         assert.deepEqual(JSON.parse(fs.readFileSync(path.join(diskBundle, 'Contents', 'Resources', 'dotdial-build.json'), 'utf8')), manifest);
         assert.equal(fs.readlinkSync(path.join(mount, 'Applications')), '/Applications');
-        evidence.diskImage = { readable: true, signedAppVerified: true, applicationsShortcut: true };
+        evidence.diskImage = { readable: true, signedAppVerified: true, applicationsShortcut: true, electronNotices };
         run('/usr/bin/hdiutil', ['detach', mount]);
         mounted = false;
       }],

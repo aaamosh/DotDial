@@ -173,6 +173,7 @@ The verifier requires every stage to pass:
 
 | Stage | What it checks |
 | --- | --- |
+| `electron_notices` | The extracted app contains the exact nonempty Electron MIT and Chromium license files from the pinned runtime. The mounted DMG is checked independently for the same bytes. |
 | `deployment_targets` | The native target architecture slice in every Mach-O file in the bundle declares a macOS minimum of 13.0 or earlier. This inspects binary metadata; it does not run the app on Ventura or establish compatibility of unused foreign slices. |
 | `signed_entitlements` | The signed identities and entitlements of the main app, generic Electron helper and native configuration-lock helper match their expected roles, including audio-input rights where required. This examines signed code, not only source plist files. |
 | `native_config_lock` | The bundled native helper provides the required configuration-lock behavior. |

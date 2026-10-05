@@ -7,11 +7,94 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const test = require('node:test');
-const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, BUNDLE_ID } = require('../scripts/package-macos.cjs');
+const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, copyElectronNotices, verifyElectronNotices, BUNDLE_ID } = require('../scripts/package-macos.cjs');
 const { runRequiredStages, parseJsonLine, verifyArtifactChecksums, verifySpeechFixtures } = require('../scripts/verify-macos-package.cjs');
 const { createHash } = require('node:crypto');
 const pkg = { name: 'dotdial', productName: 'DotDial', version: '0.1.0-beta.2', devDependencies: { electron: '44.5.1', '@electron/packager': '20.3.0' } };
 const sha = 'a'.repeat(40);
+
+function noticeFixture(t) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-electron-notices-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const electronDirectory = path.join(directory, 'electron');
+  const distribution = path.join(electronDirectory, 'dist');
+  const bundle = path.join(directory, 'DotDial.app');
+  const resources = path.join(bundle, 'Contents', 'Resources');
+  fs.mkdirSync(distribution, { recursive: true });
+  fs.mkdirSync(path.join(resources, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(electronDirectory, 'package.json'), JSON.stringify({ version: '44.5.1' }));
+  fs.writeFileSync(path.join(resources, 'app', 'LICENSE'), 'DotDial license fixture\n');
+  // These deliberately small fixture bytes exercise preservation/provenance;
+  // they do not claim to be upstream notices or a native application bundle.
+  const contents = { LICENSE: 'Electron license fixture\n', 'LICENSES.chromium.html': '<p>Chromium notices fixture</p>\n' };
+  for (const [name, bytes] of Object.entries(contents)) fs.writeFileSync(path.join(distribution, name), bytes);
+  return { directory, electronDirectory, distribution, bundle, resources, contents };
+}
+
+test('macOS packages preserve exact pinned Electron notices separately from the project license', t => {
+  const fixture = noticeFixture(t);
+  const { directory, electronDirectory, bundle, resources, contents } = fixture;
+  assert.throws(() => verifyElectronNotices(bundle, electronDirectory, '44.5.1'), /Packaged Electron notice/,
+    'the original package omission must fail acceptance');
+  const staged = path.join(directory, 'electron-licenses');
+  copyElectronNotices(electronDirectory, staged, '44.5.1');
+  // Model only Packager extraResource's directory copy, without invoking any
+  // platform APIs or asserting that this fixture is signed or runnable.
+  fs.cpSync(staged, path.join(resources, 'electron-licenses'), { recursive: true });
+  const report = verifyElectronNotices(bundle, electronDirectory, '44.5.1');
+  assert.equal(report.electronVersion, '44.5.1');
+  assert.equal(report.files.length, 2);
+  for (const [name, bytes] of Object.entries(contents)) {
+    const file = path.join(resources, 'electron-licenses', name);
+    assert.equal(fs.readFileSync(file, 'utf8'), bytes);
+    const record = report.files.find(entry => entry.bundledPath.endsWith('/' + name));
+    assert.equal(record.sourcePath, 'node_modules/electron/dist/' + name);
+    assert.equal(record.sourceSha256, createHash('sha256').update(bytes).digest('hex'));
+    assert.equal(record.bundledSha256, record.sourceSha256);
+    assert.equal(record.bytes, Buffer.byteLength(bytes));
+  }
+  assert.equal(fs.readFileSync(path.join(resources, 'app', 'LICENSE'), 'utf8'), 'DotDial license fixture\n');
+  assert.throws(() => copyElectronNotices(electronDirectory, path.join(directory, 'wrong-version'), '44.5.0'), /exact installed runtime version/);
+  assert.throws(() => verifyElectronNotices(bundle, electronDirectory, '44.5.0'), /exact installed runtime version/);
+});
+
+test('macOS packaging refuses missing, empty or nonregular upstream Electron notices', t => {
+  const { directory, electronDirectory, distribution, contents } = noticeFixture(t);
+  for (const [name, bytes] of Object.entries(contents)) {
+    const file = path.join(distribution, name);
+    for (const kind of ['missing', 'empty', 'directory', 'symlink']) {
+      fs.rmSync(file, { recursive: true, force: true });
+      if (kind === 'empty') fs.writeFileSync(file, '');
+      if (kind === 'directory') fs.mkdirSync(file);
+      if (kind === 'symlink') fs.symlinkSync(path.join(electronDirectory, 'package.json'), file);
+      const destination = path.join(directory, `stage-${name}-${kind}`);
+      assert.throws(() => copyElectronNotices(electronDirectory, destination, '44.5.1'), /Electron distribution notice.*nonempty regular file/);
+      assert.equal(fs.existsSync(destination), false, 'invalid upstream notices cannot create partial resources');
+    }
+    fs.rmSync(file, { recursive: true, force: true });
+    fs.writeFileSync(file, bytes);
+  }
+});
+
+test('macOS acceptance rejects missing, empty and substituted bundled notices against the installed runtime', t => {
+  const { electronDirectory, distribution, bundle, resources, contents } = noticeFixture(t);
+  const destination = path.join(resources, 'electron-licenses');
+  copyElectronNotices(electronDirectory, destination, '44.5.1');
+  for (const [name, bytes] of Object.entries(contents)) {
+    const file = path.join(destination, name);
+    fs.unlinkSync(file);
+    assert.throws(() => verifyElectronNotices(bundle, electronDirectory, '44.5.1'), /Packaged Electron notice.*nonempty regular file/);
+    fs.writeFileSync(file, '');
+    assert.throws(() => verifyElectronNotices(bundle, electronDirectory, '44.5.1'), /Packaged Electron notice.*nonempty regular file/);
+    fs.writeFileSync(file, 'nonempty substituted notice\n');
+    assert.throws(() => verifyElectronNotices(bundle, electronDirectory, '44.5.1'), /differs from the installed runtime/);
+    fs.writeFileSync(file, bytes);
+    fs.writeFileSync(path.join(distribution, name), 'changed upstream reference\n');
+    assert.throws(() => verifyElectronNotices(bundle, electronDirectory, '44.5.1'), /differs from the installed runtime/);
+    fs.writeFileSync(path.join(distribution, name), bytes);
+  }
+  assert.equal(verifyElectronNotices(bundle, electronDirectory, '44.5.1').files.length, 2);
+});
 
 test('artifact checksums reject duplicate substitution, missing files, unsafe names and altered bytes', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-checksums-'));

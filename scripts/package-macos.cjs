@@ -16,6 +16,8 @@ const BUNDLE_ID = 'org.dotdial.DotDial';
 const MINIMUM_MACOS = '13.0';
 const MICROPHONE_DESCRIPTION = 'DotDial uses your microphone for calls you start and, when you enable it, local wake-word recognition.';
 const MAC_ARCHITECTURES = new Set(['arm64', 'x64']);
+const ELECTRON_NOTICE_FILES = ['LICENSE', 'LICENSES.chromium.html'];
+const ELECTRON_NOTICES_DIRECTORY = 'electron-licenses';
 const CLI_LAUNCHER = `#!/bin/sh
 set -eu
 case "$0" in
@@ -143,6 +145,56 @@ async function prepareAppSource({ buildPath }) {
   writeCliLauncher(buildPath);
 }
 
+function readNotice(file, description) {
+  let stat;
+  try { stat = fs.lstatSync(file); } catch (cause) {
+    throw Error(`${description} must be a nonempty regular file: ${path.basename(file)}`, { cause });
+  }
+  if (!stat.isFile() || stat.size === 0) {
+    throw Error(`${description} must be a nonempty regular file: ${path.basename(file)}`);
+  }
+  const bytes = fs.readFileSync(file);
+  if (bytes.length === 0) throw Error(`${description} is empty: ${path.basename(file)}`);
+  return bytes;
+}
+
+function readElectronNotices(electronDirectory, expectedVersion) {
+  const installed = JSON.parse(fs.readFileSync(path.join(electronDirectory, 'package.json'), 'utf8'));
+  if (typeof expectedVersion !== 'string' || installed.version !== expectedVersion) {
+    throw Error('Electron license provenance requires the exact installed runtime version.');
+  }
+  return ELECTRON_NOTICE_FILES.map(name => {
+    const bytes = readNotice(path.join(electronDirectory, 'dist', name), 'Electron distribution notice');
+    return { name, bytes, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
+  });
+}
+
+function copyElectronNotices(electronDirectory, destination, expectedVersion) {
+  // Read both upstream files before creating the resource directory. Keep the
+  // runtime's notices separate from DotDial's own LICENSE and component list.
+  const notices = readElectronNotices(electronDirectory, expectedVersion);
+  fs.mkdirSync(destination, { mode: 0o755 });
+  for (const notice of notices) {
+    fs.writeFileSync(path.join(destination, notice.name), notice.bytes, { mode: 0o644, flag: 'wx' });
+  }
+  return destination;
+}
+
+function verifyElectronNotices(bundle, electronDirectory, expectedVersion) {
+  const notices = readElectronNotices(electronDirectory, expectedVersion);
+  const files = notices.map(notice => {
+    const bundledPath = `Contents/Resources/${ELECTRON_NOTICES_DIRECTORY}/${notice.name}`;
+    const bytes = readNotice(path.join(bundle, bundledPath), 'Packaged Electron notice');
+    const bundledSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (bundledSha256 !== notice.sha256) {
+      throw Error(`Packaged Electron notice differs from the installed runtime: ${notice.name}`);
+    }
+    return { sourcePath: `node_modules/electron/dist/${notice.name}`, bundledPath,
+      bytes: bytes.length, sourceSha256: notice.sha256, bundledSha256 };
+  });
+  return { electronVersion: expectedVersion, files };
+}
+
 function verifyBundle(bundle, manifest) {
   const contents = path.join(bundle, 'Contents');
   const executable = path.join(contents, 'MacOS', APP_NAME);
@@ -198,6 +250,9 @@ async function main(argv = process.argv.slice(2)) {
     const { packager } = require('@electron/packager');
     const manifestFile = path.join(temporary, 'dotdial-build.json');
     fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o644 });
+    const electronDirectory = path.join(ROOT, 'node_modules', 'electron');
+    const electronNotices = copyElectronNotices(electronDirectory,
+      path.join(temporary, ELECTRON_NOTICES_DIRECTORY), manifest.electronVersion);
     const results = await packager({
       dir: ROOT,
       out: output,
@@ -215,7 +270,9 @@ async function main(argv = process.argv.slice(2)) {
       prune: false,
       overwrite: true,
       ignore: candidate => appFileFilter(candidate),
-      extraResource: [manifestFile, lockHelper],
+      // Extra resources are copied before signing. Both standalone downloads
+      // inherit these exact runtime notices inside the signed application.
+      extraResource: [manifestFile, lockHelper, electronNotices],
       extendInfo: { NSMicrophoneUsageDescription: MICROPHONE_DESCRIPTION, LSMinimumSystemVersion: MINIMUM_MACOS },
       extendHelperInfo: { NSMicrophoneUsageDescription: MICROPHONE_DESCRIPTION, LSMinimumSystemVersion: MINIMUM_MACOS },
       osxSign: signingOptions(),
@@ -224,6 +281,7 @@ async function main(argv = process.argv.slice(2)) {
     if (results.length !== 1) throw Error('Expected one native macOS application bundle.');
     const bundle = path.join(results[0], `${APP_NAME}.app`);
     verifyBundle(bundle, manifest);
+    verifyElectronNotices(bundle, electronDirectory, manifest.electronVersion);
     const zip = path.join(output, stem + '.app.zip');
     const dmg = path.join(output, stem + '.dmg');
     const sidecar = path.join(output, stem + '.manifest.json');
@@ -260,4 +318,4 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) main().catch(error => { console.error('macOS packaging failed:', error.stack || error.message); process.exitCode = 1; });
-module.exports = { main, validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, prepareAppSource, verifyBundle, sha256, BUNDLE_ID, MINIMUM_MACOS, MICROPHONE_DESCRIPTION };
+module.exports = { main, validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, prepareAppSource, copyElectronNotices, verifyElectronNotices, verifyBundle, sha256, BUNDLE_ID, MINIMUM_MACOS, MICROPHONE_DESCRIPTION };

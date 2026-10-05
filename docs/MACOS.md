@@ -15,12 +15,18 @@ Login Items, local audio cues and application bundles for both Mac architectures
 - Python is optional and is used only for the wake-word recognizer. Normal calls,
   hotkeys, sounds and saved replies do not need a system Node or Python install.
 
-Preview installers are produced by the [macOS workflow](../.github/workflows/macos.yml).
-Open the successful run for the branch/commit being tested and download the
+Download the published **Apple Silicon or Intel DMG** from the
+[first macOS preview release](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1).
+The release also includes application ZIPs, source manifests and one combined
+`SHA256SUMS` file. Its notes identify the exact source revision and native CI run.
+
+Development previews are produced by the [macOS workflow](../.github/workflows/macos.yml).
+For an unpublished revision, open its successful run and download the
 `dotdial-macos-arm64-preview-<revision>` or
 `dotdial-macos-x64-preview-<revision>` artifact. Each contains a `.dmg`, an
 application `.zip`, `SHA256SUMS` and a build manifest. The file name contains the
-source revision so a preview cannot be mistaken for a tagged release.
+source revision so every preview can be traced to its build, including previews
+promoted to GitHub Releases.
 
 These builds have a local **ad-hoc code signature**. They do **not** have an Apple
 Developer ID certificate and are **not notarized**. The signature is checked during
@@ -192,7 +198,8 @@ that does not match the build host. The normal `npm run package` dispatches to t
 host platform; the Linux packaging path remains available on Linux.
 
 Native CI is configured for both architectures. Its required gates inspect the
-native target slice of every bundled Mach-O file for a deployment minimum no
+bundled Electron MIT and Chromium license texts against the exact pinned runtime,
+the native target slice of every bundled Mach-O file for a deployment minimum no
 higher than macOS 13.0, and check the signed identities and entitlements of the
 main app, generic helper and configuration-lock helper. Other gates cover archive
 contents, bundled CLI without system Node, local synthetic GUI and media behavior,
@@ -208,8 +215,10 @@ valid signed entitlements do not establish a TCC permission grant, Developer ID
 signing or notarization.
 Synthetic checks do not establish that real ChatGPT authentication, a microphone
 permission prompt, physical audio hardware or Login Items will work on every Mac.
-Before a public release, test those with an actual user session on the minimum
-supported macOS and a current version. Do not put account data or recordings in CI.
+The first public prerelease explicitly carries these remaining acceptance gaps.
+Before promoting it beyond preview, test those with an actual user session on the
+minimum supported macOS and a current version. Do not put account data or
+recordings in CI.
 
 The application icon is derived from `src/assets/dotdial-macos.svg`, using the
 existing DotDial mark. The reviewed ICNS file is included in source and pinned by

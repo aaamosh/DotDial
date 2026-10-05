@@ -54,10 +54,13 @@ For an upgrade, choose **Quit** in the tray before installing, then relaunch Dot
 
 ### macOS preview
 
-Native `.app.zip` and `.dmg` previews are built for Apple Silicon and Intel. See
-[macOS installation, microphone permission and wake setup](docs/MACOS.md). These
-preview builds are ad-hoc signed, not Developer ID signed or notarized. Linux
-release downloads above remain unchanged.
+Download the native **Apple Silicon or Intel DMG** from the
+[first macOS preview release](https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1).
+ZIP alternatives, build manifests and SHA-256 checksums are included. See
+[macOS installation, microphone permission and wake setup](docs/MACOS.md).
+These preview builds are ad-hoc signed and have not been Developer ID signed or
+notarized. macOS may require approval in Privacy & Security after the first launch
+attempt. The release notes describe the remaining real-device checks.
 
 ### Debian or Ubuntu
 

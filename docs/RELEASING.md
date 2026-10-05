@@ -1,6 +1,8 @@
 # Release checklist
 
-DotDial is a Linux x86_64 beta. Review the source, test a clean installation and a live call, and verify the final artifacts before publishing a release.
+DotDial has a Linux x86_64 beta and a native macOS preview for Apple Silicon and
+Intel. The Linux checklist below remains the standard for Linux releases. macOS
+preview promotion is described separately at the end of this guide.
 
 ## Before tagging
 
@@ -50,3 +52,36 @@ See `SHA256SUMS` attached to this release.
 ## Rollback
 
 If a build fails to install, sign in, connect, or safely stop a call, mark the release as withdrawn, provide the prior known-good version if available, and keep the repository issue tracker open for the failure. Do not ask users to upload browser profiles, cookies, credentials, or audio recordings for diagnosis.
+
+## First macOS preview publication
+
+The first public macOS preview is `v0.1.0-beta.3-macos-preview.1`. It retains the
+application version `0.1.0-beta.3`; its artifact names and embedded manifests also
+identify the exact source commit. This is an ad-hoc signed prerelease, without
+Developer ID signing or notarization. The [release notes](releases/macos-preview-1.md)
+explicitly describe the remaining manual acceptance checks.
+
+The macOS workflow has a narrow, one-time promotion gate: a push to this repository's
+`feat/macos` branch whose commit-message first line is exactly
+`Publish macOS preview 1 with bundled runtime notices`. Ordinary pushes and pull
+requests only build and verify packages. Promotion depends on both native matrix
+jobs passing every required stage in [the testing guide](TESTING.md#native-macos-acceptance).
+The build jobs retain read-only repository permissions; only the promotion job can
+write release contents.
+
+Promotion downloads the distribution artifacts from that same workflow run,
+checks their complete file inventories, manifests and SHA-256 values, and prepares
+a draft release targeting that exact commit. It attaches both DMGs, both app ZIPs,
+both manifests and one combined `SHA256SUMS`. It verifies the uploaded assets before
+publishing as a prerelease without selecting it as the latest stable release.
+Existing mismatched tags or assets fail the operation instead of being overwritten.
+
+Both downloaded formats must contain Electron's `LICENSE` and
+`LICENSES.chromium.html` under `DotDial.app/Contents/Resources/electron-licenses/`.
+The packager copies them from the pinned runtime before signing, and native
+acceptance verifies their bytes in the ZIP and DMG.
+
+Complete the physical microphone, real account, TCC, Login Items and minimum-macOS
+session checks before promoting this preview to a more general release. Preserve
+the explicit preview classification until that acceptance and the planned Apple
+signing/notarization work are complete.
