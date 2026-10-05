@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const test = require('node:test');
-const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, ensureElectronDistribution, copyElectronNotices, verifyElectronNotices, BUNDLE_ID } = require('../scripts/package-macos.cjs');
+const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, ensureElectronDistribution, readElectronChecksums, copyElectronNotices, verifyElectronNotices, BUNDLE_ID } = require('../scripts/package-macos.cjs');
 const { runRequiredStages, parseJsonLine, verifyArtifactChecksums, verifySpeechFixtures } = require('../scripts/verify-macos-package.cjs');
 const { createHash } = require('node:crypto');
 const pkg = { name: 'dotdial', productName: 'DotDial', version: '0.1.0-beta.2', devDependencies: { electron: '44.5.1', '@electron/packager': '20.3.0' } };
@@ -63,6 +63,43 @@ test('macOS packaging explicitly prepares Electron 44 lazy distribution and chec
   fs.rmSync(distribution, { recursive: true });
   writeInstaller('44.5.1', false);
   assert.throws(() => ensureElectronDistribution(electronDirectory, '44.5.1'), /ENOENT|executable/);
+});
+
+test('pinned Electron checksums permit offline cache reuse and reject altered archive bytes', async t => {
+  const { directory, electronDirectory } = noticeFixture(t);
+  const filename = 'electron-v44.5.1-darwin-x64.zip';
+  const checksumFile = path.join(electronDirectory, 'checksums.json');
+  // Exercise the real downloader's hash/cache contract with small fixture bytes;
+  // no network, archive extraction or native runtime is needed for this check.
+  const bytes = Buffer.from('Electron archive checksum fixture; not a native distribution.');
+  const pinned = { [filename]: createHash('sha256').update(bytes).digest('hex') };
+  fs.writeFileSync(checksumFile, JSON.stringify(pinned));
+  const checksums = readElectronChecksums(electronDirectory, '44.5.1', 'x64');
+  assert.deepEqual(checksums, pinned);
+  const { downloadArtifact } = await import('@electron/get');
+  const requests = [];
+  let allowTransfer = true;
+  const options = { version: '44.5.1', artifactName: 'electron', platform: 'darwin', arch: 'x64',
+    checksums, cacheRoot: path.join(directory, 'cache'), tempDirectory: directory,
+    downloader: { async download(url, target) {
+      requests.push(url);
+      if (!allowTransfer) throw Error('fixture_downloader_offline');
+      fs.writeFileSync(target, bytes);
+    } } };
+  const cached = await downloadArtifact(options);
+  assert.equal(requests.length, 1, 'pinned checksums must avoid a separate checksum download');
+  allowTransfer = false;
+  assert.equal(await downloadArtifact(options), cached);
+  assert.equal(requests.length, 1, 'a verified cached archive must work with no network');
+  fs.writeFileSync(cached, 'altered archive bytes');
+  await assert.rejects(downloadArtifact(options), /fixture_downloader_offline/);
+  assert.equal(requests.length, 2, 'an altered archive must require a fresh download, never be accepted');
+  assert.throws(() => readElectronChecksums(electronDirectory, '44.5.0', 'x64'), /must provide a SHA-256 checksum/);
+  assert.throws(() => readElectronChecksums(electronDirectory, '44.5.1', 'arm64'), /must provide a SHA-256 checksum/);
+  for (const invalid of [null, {}, { [filename]: 'invalid' }]) {
+    fs.writeFileSync(checksumFile, JSON.stringify(invalid));
+    assert.throws(() => readElectronChecksums(electronDirectory, '44.5.1', 'x64'), /must provide a SHA-256 checksum/);
+  }
 });
 
 test('macOS packages preserve exact pinned Electron notices separately from the project license', t => {

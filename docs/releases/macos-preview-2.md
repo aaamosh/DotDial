@@ -46,6 +46,10 @@ to pass, including signed entitlements, bundled CLI, synthetic media capture,
 wake-model repair, the PCM pipeline, spoken wake recognition, runtime licenses
 and DMG verification. See the [exact build and QA run]({{CI_RUN_URL}}).
 
+The GUI test requires four fresh microphone captures in the same application
+after its synthetic call closes, with bounded startup diagnostics and immediate
+failure if any required capture fails. The original startup deadlines remain.
+
 The PCM pipeline checks initial capture and four pause/resume cycles. It retains
 the requirement for 25 acknowledged blocks within seven seconds and additionally
 checks their steady cadence: the first-to-last span of 25 consecutive 100 ms

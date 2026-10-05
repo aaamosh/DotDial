@@ -4,16 +4,16 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function harness({ getUserMedia, sendAudio } = {}) {
-  const nodes = [], contexts = [], tracks = [], constraints = [], deviceQueries = [], errors = [], payloads = [];
+function harness({ getUserMedia, sendAudio, addModule, resume, sendStartup } = {}) {
+  const nodes = [], contexts = [], tracks = [], constraints = [], deviceQueries = [], errors = [], payloads = [], startup = [];
   function newStream() {
     const track = { stopped: false, stop() { this.stopped = true; }, addEventListener() {} }; tracks.push(track);
     return { getTracks: () => [track], getAudioTracks: () => [track] };
   }
   class Context {
-    constructor(options) { this.sampleRate = options.sampleRate; this.sinkId = structuredClone(options.sinkId); this.latencyHint = options.latencyHint; this.audioWorklet = { async addModule() {} }; this.destination = {}; contexts.push(this); }
+    constructor(options) { this.sampleRate = options.sampleRate; this.sinkId = structuredClone(options.sinkId); this.latencyHint = options.latencyHint; this.audioWorklet = { addModule: () => addModule ? addModule() : Promise.resolve() }; this.destination = {}; contexts.push(this); }
     createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
-    async resume() {} async close() { this.closed = true; }
+    async resume() { if (resume) await resume(); } async close() { this.closed = true; }
   }
   class Worklet {
     constructor() { this.sent = []; this.port = { postMessage: value => this.sent.push(value) }; nodes.push(this); }
@@ -22,12 +22,13 @@ function harness({ getUserMedia, sendAudio } = {}) {
   const globals = { window: { DotDialWakePipe: {
     audio(payload) { payloads.push(payload); return sendAudio ? sendAudio(payload) : Promise.resolve({ accepted: true }); },
     error(code) { errors.push(code); },
+    startup(payload) { startup.push(structuredClone(payload)); if (sendStartup) sendStartup(payload); },
   } }, AudioContext: Context, AudioWorkletNode: Worklet, URL,
   document: { baseURI: 'file:///synthetic/wake_capture.html' },
   DotDialDevices: { async resolve(value, kind) { deviceQueries.push([value, kind]); return 'exact-device'; } },
   navigator: { mediaDevices: { getUserMedia(options) { constraints.push(options); return getUserMedia ? getUserMedia() : Promise.resolve(newStream()); } } } };
   vm.runInNewContext(fs.readFileSync(new URL('./wake_renderer.js', import.meta.url), 'utf8'), globals, { filename: 'wake_renderer.js' });
-  return { api: globals.window.DotDialWake, nodes, contexts, tracks, constraints, deviceQueries, errors, payloads, newStream };
+  return { api: globals.window.DotDialWake, nodes, contexts, tracks, constraints, deviceQueries, errors, payloads, startup, newStream };
 }
 
 test('mac wake renderer sends selected input through a silent 16 kHz context to the acknowledged PCM pipe', async () => {
@@ -54,6 +55,53 @@ test('a late microphone acquisition after stop is closed before it can connect',
   resolveMic(h.newStream());
   await assert.rejects(pending, { code: 'wake_capture_cancelled' });
   assert.equal(h.tracks[0].stopped, true); assert.equal(h.nodes.length, 0);
+});
+
+test('startup diagnostics identify a stalled worklet, microphone or resume without allowing late progress after cancellation', async () => {
+  for (const [operation, lastStage] of [['addModule', 'worklet_start'], ['getUserMedia', 'microphone_start'], ['resume', 'resume_start']]) {
+    let complete, calls = 0;
+    const h = harness({ [operation]: () => { calls++; return new Promise(resolve => { complete = resolve; }); } });
+    const pending = h.api.start('label:private microphone'); await tick();
+    assert.deepEqual(h.startup.at(-1), { stage: lastStage });
+    assert.equal(calls, 1, 'diagnostics must not retry a stalled API');
+    assert.equal(h.startup.some(item => item.stage === 'renderer_ready'), false);
+    assert.equal(JSON.stringify(h.startup).includes('private'), false);
+    h.api.stop();
+    assert.equal(h.contexts[0].closed, true, 'cancellation closes the context without awaiting the stalled API');
+    assert.ok(h.tracks.every(track => track.stopped));
+    const count = h.startup.length;
+    complete(operation === 'getUserMedia' ? h.newStream() : undefined);
+    await assert.rejects(pending, { code: 'wake_capture_cancelled' });
+    assert.equal(h.startup.length, count, 'cancelled generations cannot report a later completed boundary');
+    assert.ok(h.tracks.every(track => track.stopped), 'late microphone acquisitions are still stopped');
+  }
+});
+
+test('startup diagnostics retain only a known renderer API error name and preserve public errors and cleanup', async () => {
+  for (const [operation, name, expectedName, code] of [
+    ['addModule', 'AbortError', 'AbortError', 'wake_audio_unavailable'],
+    ['getUserMedia', 'NotAllowedError', 'NotAllowedError', 'microphone_permission_required'],
+    ['resume', 'InvalidStateError', 'InvalidStateError', 'wake_audio_unavailable'],
+    ['getUserMedia', 'private microphone name', 'Error', 'wake_audio_unavailable'],
+  ]) {
+    const error = Object.assign(new Error('private device label, URL and other error details'), { name });
+    const h = harness({ [operation]: async () => { throw error; } });
+    await assert.rejects(h.api.start(), { code });
+    assert.deepEqual(h.startup.at(-1), { stage: 'error', errorName: expectedName });
+    assert.equal(JSON.stringify(h.startup).includes('private'), false);
+    assert.equal(h.contexts[0].closed, true);
+    assert.ok(h.tracks.every(track => track.stopped));
+  }
+});
+
+test('diagnostic delivery cannot block an otherwise healthy wake capture', async () => {
+  const h = harness({ sendStartup() { throw Error('diagnostic delivery unavailable'); } });
+  await h.api.start();
+  assert.deepEqual(h.startup.at(-1), { stage: 'renderer_ready' });
+  assert.deepEqual(h.errors, []);
+  h.api.stop();
+  assert.equal(h.contexts[0].closed, true);
+  assert.ok(h.tracks.every(track => track.stopped));
 });
 
 test('wake PCM backpressure is bounded and closes the microphone instead of accumulating audio', async () => {

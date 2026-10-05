@@ -191,6 +191,16 @@ function ensureElectronDistribution(electronDirectory, expectedVersion) {
   return { electronVersion: expectedVersion, executable };
 }
 
+function readElectronChecksums(electronDirectory, expectedVersion, arch) {
+  const filename = `electron-v${expectedVersion}-darwin-${arch}.zip`;
+  const checksums = JSON.parse(fs.readFileSync(path.join(electronDirectory, 'checksums.json'), 'utf8'));
+  const checksum = checksums?.[filename];
+  if (typeof checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(checksum)) {
+    throw Error(`The pinned Electron package must provide a SHA-256 checksum for ${filename}.`);
+  }
+  return { [filename]: checksum };
+}
+
 function copyElectronNotices(electronDirectory, destination, expectedVersion) {
   // Read both upstream files before creating the resource directory. Keep the
   // runtime's notices separate from DotDial's own LICENSE and component list.
@@ -286,6 +296,9 @@ async function main(argv = process.argv.slice(2)) {
       appVersion: pkg.version.split('-')[0],
       buildVersion: pkg.version.split('-')[0],
       electronVersion: pkg.devDependencies.electron,
+      // Revalidate the installer's cached ZIP against the same pinned checksum.
+      // Without it, Packager fetches remote checksums even for a cached archive.
+      download: { checksums: readElectronChecksums(electronDirectory, manifest.electronVersion, process.arch) },
       platform: 'darwin',
       arch: process.arch,
       icon,
@@ -341,4 +354,4 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) main().catch(error => { console.error('macOS packaging failed:', error.stack || error.message); process.exitCode = 1; });
-module.exports = { main, validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, prepareAppSource, ensureElectronDistribution, copyElectronNotices, verifyElectronNotices, verifyBundle, sha256, BUNDLE_ID, MINIMUM_MACOS, MICROPHONE_DESCRIPTION };
+module.exports = { main, validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, writeCliLauncher, prepareAppSource, ensureElectronDistribution, readElectronChecksums, copyElectronNotices, verifyElectronNotices, verifyBundle, sha256, BUNDLE_ID, MINIMUM_MACOS, MICROPHONE_DESCRIPTION };

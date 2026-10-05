@@ -3,6 +3,9 @@
   let generation = 0, stream, context, source, worklet, pending = 0;
   const MAX_PENDING = 4;
   const failure = code => Object.assign(new Error(code), { code });
+  const ERROR_NAMES = new Set(['Error', 'TypeError', 'RangeError', 'AbortError', 'NotAllowedError',
+    'NotFoundError', 'NotReadableError', 'OverconstrainedError', 'InvalidStateError', 'NotSupportedError',
+    'SecurityError', 'SyntaxError', 'NetworkError', 'OperationError', 'UnknownError', 'TimeoutError']);
   function stop() {
     generation++;
     stream?.getTracks().forEach(track => track.stop());
@@ -22,21 +25,33 @@
     stop();
     const ticket = generation;
     let acquired, audioContext;
+    const progress = (stage, errorName) => {
+      if (ticket !== generation) return;
+      try { window.DotDialWakePipe.startup({ stage, ...(errorName ? { errorName } : {}) }); } catch {}
+    };
     try {
+      progress('context_start');
       // Wake analysis has no audible output. A modest buffer lets the silent
       // sink's software clock keep up without a system playback device.
       audioContext = new AudioContext({ sampleRate: 16000, sinkId: { type: 'none' }, latencyHint: 0.1 });
       context = audioContext;
+      progress('context_ready');
       if (audioContext.sampleRate !== 16000) throw failure('wake_audio_sample_rate');
+      progress('worklet_start');
       await audioContext.audioWorklet.addModule(new URL('./wake_worklet.js', document.baseURI).href);
       if (ticket !== generation) throw failure('wake_capture_cancelled');
+      progress('worklet_ready');
+      progress('device_start');
       const exact = deviceId === 'default' ? null : await DotDialDevices.resolve(deviceId, 'audioinput');
       if (ticket !== generation) throw failure('wake_capture_cancelled');
+      progress('device_ready');
+      progress('microphone_start');
       acquired = await navigator.mediaDevices.getUserMedia({ video: false, audio: {
         channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true,
         ...(exact ? { deviceId: { exact } } : {}),
       } });
       if (ticket !== generation) throw failure('wake_capture_cancelled');
+      progress('microphone_ready');
       stream = acquired;
       const input = audioContext.createMediaStreamSource(acquired);
       const processor = new AudioWorkletNode(audioContext, 'dotdial-wake', {
@@ -60,10 +75,15 @@
       processor.onprocessorerror = () => fail('wake_audio_unavailable', ticket);
       for (const track of acquired.getAudioTracks()) track.addEventListener('ended', () => fail('wake_audio_unavailable', ticket), { once: true });
       input.connect(processor); processor.connect(audioContext.destination);
+      progress('graph_ready');
+      progress('resume_start');
       await audioContext.resume();
       if (ticket !== generation) throw failure('wake_capture_cancelled');
+      progress('resume_ready');
+      progress('renderer_ready');
       return { sampleRate: audioContext.sampleRate, deviceId };
     } catch (error) {
+      if (error?.code !== 'wake_capture_cancelled') progress('error', ERROR_NAMES.has(error?.name) ? error.name : 'Error');
       acquired?.getTracks().forEach(track => track.stop());
       if (ticket === generation) stop();
       else void audioContext?.close().catch(() => {});

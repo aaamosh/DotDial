@@ -215,6 +215,15 @@ settled fonts, the active section's final opacity and nonempty pixels within its
 existing deadline. Its report includes bounded window, document and animation
 state so a rendering timeout can be diagnosed without bypassing the assertion.
 
+After its synthetic call closes, that same packaged application must complete
+four fresh wake captures. Each keeps the existing 15-second startup limit and
+must deliver three real PCM blocks within eight seconds, then close without
+late callbacks during a 350 ms observation. A failed cycle stops the test; the
+remaining cycles cannot replace a failure. Bounded startup records identify
+document loading, worklet loading, microphone acquisition and context resume,
+using monotonic timestamps and fixed stage/error names. They survive window
+destruction so a timeout retains its last observed stage without a debugger.
+
 The pipeline loads the extracted package's capture/manager/listener code into a
 development Electron of the same pinned version and uses native Python
 dependencies. An independently bounded process supervisor cleans up even if its

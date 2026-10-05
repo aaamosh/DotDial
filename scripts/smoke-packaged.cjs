@@ -252,6 +252,21 @@ async function runWakeCapture({ app, BrowserWindow, session, ipcMain }) {
   assert.equal(MAX_CHUNK_BYTES, 6400);
   const createCapture = createWakeCaptureFactory({ BrowserWindow, session, ipcMain,
     getMicrophoneDeviceId: () => 'default' });
+  const captures = [];
+  // Exercise fresh starts in this same app after the call media window closes.
+  // These are required cycles, not retries: any failure stops the smoke test.
+  for (let cycle = 1; cycle <= 4; cycle++) captures.push(await captureWakeOnce(createCapture, cycle));
+  const bytes = captures.reduce((total, capture) => total + capture.pcm_bytes, 0);
+  return { result: 'passed', cycles: captures.length, captures,
+    sample_rate: 16000, channels: 1, format: 'float32le', chunk_bytes: 6400,
+    packets: captures.reduce((total, capture) => total + capture.packets, 0),
+    pcm_bytes: bytes, pcm_samples: bytes / 4,
+    peak_absolute: Math.max(...captures.map(capture => capture.peak_absolute)),
+    worklet_pcm_received: true, capture_window_destroyed: true, callbacks_after_close: 0,
+    post_close_observation_ms: 350, physical_microphone_tested: false };
+}
+
+async function captureWakeOnce(createCapture, cycle) {
   const errors = [], rendererErrors = [];
   let packets = 0, bytes = 0, peak = 0, callbacksAfterClose = 0, closing = false;
   const wake = createCapture({
@@ -289,12 +304,14 @@ async function runWakeCapture({ app, BrowserWindow, session, ipcMain }) {
     assert.equal(packets, finalPackets, 'wake PCM callbacks must stop after close');
     assert.equal(callbacksAfterClose, 0);
     assert.deepEqual(errors, []);
-    return { result: 'passed', sample_rate: 16000, channels: 1, format: 'float32le',
+    return { result: 'passed', cycle, startup: structuredClone(wake.startupDiagnostics),
+      sample_rate: 16000, channels: 1, format: 'float32le',
       chunk_bytes: 6400, packets, pcm_bytes: bytes, pcm_samples: bytes / 4, peak_absolute: peak,
       worklet_pcm_received: true, capture_window_destroyed: true, callbacks_after_close: callbacksAfterClose,
       post_close_observation_ms: 350, physical_microphone_tested: false };
   } catch (error) {
-    console.error('DOTDIAL_WAKE_CAPTURE_SMOKE ' + JSON.stringify({ result: 'failed', errors, renderer_errors: rendererErrors }));
+    console.error('DOTDIAL_WAKE_CAPTURE_SMOKE ' + JSON.stringify({ result: 'failed', cycle,
+      packets, startup: structuredClone(wake.startupDiagnostics), errors, renderer_errors: rendererErrors }));
     throw error;
   } finally {
     closing = true;
@@ -431,4 +448,4 @@ async function run() {
   }
 }
 
-module.exports = { run, waitForSettingsVisible, settingsReloadReadinessSource, capture };
+module.exports = { run, runWakeCapture, waitForSettingsVisible, settingsReloadReadinessSource, capture };
