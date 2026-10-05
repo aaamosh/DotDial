@@ -169,14 +169,35 @@ async function findRelease(client) {
 }
 
 function verifyRelease(release, context, body, { requireDraft = false } = {}) {
-  requireValue(release && release.tag_name === TAG && release.prerelease === true &&
-    release.target_commitish === context.sourceSha && typeof release.draft === 'boolean',
-  'Existing release metadata does not match the authorized macOS preview.');
+  const matches = { present: Boolean(release), tag: release?.tag_name === TAG,
+    prerelease: release?.prerelease === true, source: release?.target_commitish === context.sourceSha,
+    draftType: typeof release?.draft === 'boolean' };
+  requireValue(Object.values(matches).every(Boolean),
+    'Existing release metadata does not match the authorized macOS preview: ' + JSON.stringify(matches));
   if (release.draft || requireDraft) {
     requireValue(release.draft === true && release.name === TITLE && release.body === body &&
       release.author?.login === 'github-actions[bot]',
     'Only an unchanged draft created by this exact publication run may be resumed.');
   }
+}
+
+async function readCreatedDraft(client, context, body, {
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  observe = value => console.log('MACOS_RELEASE_READBACK ' + JSON.stringify(value)),
+} = {}) {
+  // Re-read only an absent just-created draft. Never retry a mismatched draft,
+  // failed HTTP request, create, upload or publish operation.
+  const delays = [250, 750, 1500];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    const release = await findRelease(client);
+    observe({ attempt: attempt + 1, found: release !== null });
+    if (release !== null) {
+      verifyRelease(release, context, body, { requireDraft: true });
+      return release;
+    }
+    if (attempt < delays.length) await sleep(delays[attempt]);
+  }
+  throw Error('Created release draft is still absent after four reads; no second create or asset upload was attempted.');
 }
 
 async function verifySource(client, context) {
@@ -204,8 +225,7 @@ async function promoteRelease({ client, context, assets, body, notesFile }) {
   } else {
     await client.command(['release', 'create', TAG, '--repo', REPOSITORY, '--draft',
       '--target', context.sourceSha, '--prerelease', '--latest=false', '--title', TITLE, '--notes-file', notesFile]);
-    release = await findRelease(client);
-    verifyRelease(release, context, body, { requireDraft: true });
+    release = await readCreatedDraft(client, context, body);
   }
   // Resume only missing files. In particular, never use gh's --clobber option.
   const missing = verifyAssets(release.assets, assets, { complete: false });
@@ -273,5 +293,5 @@ async function main(env = process.env) {
 
 if (require.main === module) main().catch(error => { console.error('macOS preview publication failed:', error.message); process.exitCode = 1; });
 module.exports = { validateContext, validateArtifacts, addCombinedChecksums, renderReleaseBody,
-  verifyAssets, resolveTag, verifyRelease, verifySource, promoteRelease, githubClient,
+  verifyAssets, resolveTag, verifyRelease, verifySource, readCreatedDraft, promoteRelease, githubClient,
   REPOSITORY, VERSION, TAG, TITLE, PUBLISH_SUBJECT };
