@@ -223,6 +223,10 @@ the stage. Passing signature and entitlement checks does not grant microphone
 permission or turn an ad-hoc signature into Developer ID signing or notarization.
 
 Each resumed capture must deliver 25 acknowledged PCM blocks within seven seconds.
+The established stream also has a cadence check: the interval between the first
+and twenty-fifth block must match its 2.4 seconds of PCM within 500 milliseconds.
+This excludes microphone startup and catches sustained slow rendering that can
+overflow the input FIFO even when the count-only deadline passes.
 The pipeline measures this deadline with a monotonic clock and records bounded
 PCM/acknowledgement timestamps together with the difference from wall-clock time.
 These observations distinguish a delayed first block, a stalled stream and a
@@ -234,6 +238,11 @@ For a targeted investigation, `--observe-audio-clock` adds a bounded, read-only
 Web Audio clock observer through Chromium's debugging protocol. Standard package
 acceptance leaves it off: PCM timing remains available without attaching a
 debugger to the capture window.
+
+Wake capture requests a silent sink and a 0.1-second latency hint. Chromium
+chooses the actual callback buffer from the device parameters; the hint is not
+an exact buffer duration. The PCM cadence and queue bounds above verify the
+resulting stream independently of that request.
 
 The macOS workflow runs natively on Apple Silicon and Intel. It preserves
 `build/macos-qa/<architecture>/` even when a check fails. Its progress report

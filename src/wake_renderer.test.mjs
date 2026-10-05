@@ -11,7 +11,7 @@ function harness({ getUserMedia, sendAudio } = {}) {
     return { getTracks: () => [track], getAudioTracks: () => [track] };
   }
   class Context {
-    constructor(options) { this.sampleRate = options.sampleRate; this.sinkId = structuredClone(options.sinkId); this.audioWorklet = { async addModule() {} }; this.destination = {}; contexts.push(this); }
+    constructor(options) { this.sampleRate = options.sampleRate; this.sinkId = structuredClone(options.sinkId); this.latencyHint = options.latencyHint; this.audioWorklet = { async addModule() {} }; this.destination = {}; contexts.push(this); }
     createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
     async resume() {} async close() { this.closed = true; }
   }
@@ -34,6 +34,7 @@ test('mac wake renderer sends selected input through a silent 16 kHz context to 
   const h = harness(); await h.api.start('label:My Microphone');
   assert.equal(h.contexts[0].sampleRate, 16000);
   assert.deepEqual(h.contexts[0].sinkId, { type: 'none' });
+  assert.equal(h.contexts[0].latencyHint, 0.1, 'the software-driven sink needs a buffer suited to background analysis');
   assert.deepEqual(h.deviceQueries, [['label:My Microphone', 'audioinput']]);
   assert.equal(h.constraints[0].audio.deviceId.exact, 'exact-device');
   assert.equal(h.constraints[0].video, false);

@@ -56,3 +56,37 @@ test('wake diagnosis accepts only one through six resume cycles', () => {
     assert.throws(() => context.parseResumeCycles(value), /resume_cycles_must_be_integer_1_to_6/);
   }
 });
+
+function cadenceHarness(chunks, elapsedMs) {
+  const context = vm.createContext({ assert });
+  vm.runInContext(actualCode('function verifyPcmCadence(', '\nasync function listening('), context);
+  // A delayed acquisition does not change the established stream's duration.
+  const timing = { chunks: Array.from({ length: chunks }, (_, index) => ({
+    pcmAtMs: 20000 + index * elapsedMs / (chunks - 1),
+  })) };
+  return { timing, verify: () => context.verifyPcmCadence(timing, chunks) };
+}
+
+test('wake cadence compares PCM duration to monotonic time after the first block, with bounded scheduling tolerance', () => {
+  for (const chunks of [10, 25]) {
+    const expected = (chunks - 1) * 100;
+    for (const jitter of [-200, 0, 300]) {
+      const sample = cadenceHarness(chunks, expected + jitter);
+      sample.verify();
+      assert.equal(sample.timing.cadence.result, 'passed');
+      assert.equal(sample.timing.cadence.expectedElapsedMs, expected);
+      assert.equal(sample.timing.cadence.toleranceMs, 500);
+    }
+  }
+});
+
+test('25 blocks delivered before seven seconds still fail when the audio stream runs at half speed', () => {
+  // These steady durations reproduce the slow ARM/Intel silent-sink ranges:
+  // the count-only gate passed, but a live input FIFO can discard audio.
+  for (const elapsedMs of [4200, 6300]) {
+    const sample = cadenceHarness(25, elapsedMs);
+    assert.ok(elapsedMs < 7000);
+    assert.throws(sample.verify, /real_pcm_clock_drift/);
+    assert.equal(sample.timing.cadence.result, 'failed');
+  }
+});

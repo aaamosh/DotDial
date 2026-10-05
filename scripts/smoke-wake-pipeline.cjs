@@ -173,6 +173,18 @@ function observeCapture(factory, callbacks) {
   captures.push(record);
   return capture;
 }
+function verifyPcmCadence(timing, chunks) {
+  const points = timing.chunks.slice(0, chunks);
+  assert.equal(points.length, chunks, 'the cadence check needs every observed PCM timestamp');
+  const expectedElapsedMs = (chunks - 1) * 100;
+  const elapsedMs = points.at(-1).pcmAtMs - points[0].pcmAtMs;
+  const driftMs = elapsedMs - expectedElapsedMs, toleranceMs = 500;
+  // Exclude acquisition/startup. The established stream must carry audio near
+  // real time: a slow consumer can overflow Chromium's microphone input FIFO.
+  timing.cadence = { expectedElapsedMs, elapsedMs, driftMs, toleranceMs,
+    result: Math.abs(driftMs) <= toleranceMs ? 'passed' : 'failed' };
+  assert.equal(timing.cadence.result, 'passed', 'real_pcm_clock_drift');
+}
 async function listening(index, chunks = 25) {
   await until(() => {
     if (manager.error) throw Error(`listener_start_failed:${manager.error}`);
@@ -184,6 +196,7 @@ async function listening(index, chunks = 25) {
     if (manager.error || !alive(child.child)) throw Error(`live_pipeline_failed:${manager.error || 'detector_exited'}`);
     return capture.acknowledged >= chunks;
   }, 7000, 'real_pcm_writes_missing', capture.timing.observation);
+  verifyPcmCadence(capture.timing, chunks);
   assert.equal(child.ready, 1); assert.deepEqual(child.errors, []); assert.deepEqual(capture.errors, []);
   assert.ok(capture.peak >= 0.001, `real PCM must contain the synthetic input, observed peak ${capture.peak}`);
   assert.ok(capture.maxPending <= MAX_PENDING); assert.ok(capture.maxQueuedBytes <= MAX_QUEUED_BYTES);
