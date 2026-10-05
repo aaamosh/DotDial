@@ -269,7 +269,7 @@ async function main() {
         let emittedReport;
         try {
           const result = await runPosixSmoke(require('electron'), [path.join(__dirname, 'smoke-wake-pipeline.cjs'),
-            '--data-dir', wakeData, '--app-source', packagedSource, '--output', pipelineReport],
+            '--data-dir', wakeData, '--app-source', packagedSource, '--output', pipelineReport, '--resume-cycles', '4'],
           { env: guiEnv, timeout: 180_000 });
           evidence.wakePipelineSupervision = result.supervision;
           emittedReport = parseJsonLine(result.stdout, 'wakePipelineSmoke');
