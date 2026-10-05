@@ -99,23 +99,8 @@ async function smoke({ source, data, fixtures, output }, report) {
     report.fixtures.push({ text, file: path.basename(filename), wavSha256: hash(bytes), pcmSha256: hash(pcm), pcmBytes: pcm.length, leadingSilenceSeconds: 0.5, trailingSilenceSeconds: 1 });
     wavs.set(text, bytes); pcms.set(text, pcm); return pcm;
   }
-  // Same WAV, unchanged model/settings, two fresh decoder processes. Preserve
-  // this diagnostic separately: it never replaces any of the twelve required cases.
-  speech(commands.playMissedReplies);
-  report.tailComparison = [];
-  for (const tailFrames of [8000, 16000]) {
-    const bytes = wavs.get(commands.playMissedReplies);
-    const input = pcmFromWav(bytes, tailFrames);
-    const result = spawnSync(python, ['-I', path.join(source, 'src/wake/listener.py'),
-      '--stdin-audio', '--model', path.join(data, 'models', MODEL),
-      '--phrase', defaults.wakeWord.phrase, '--sensitivity', String(defaults.wakeWord.sensitivity),
-      '--commands-json', JSON.stringify(commands)], { input, encoding: 'utf8', timeout: 15000, maxBuffer: 65536 });
-    const observation = { trailingSilenceSeconds: tailFrames / 16000, wavSha256: hash(bytes),
-      pcmSha256: hash(input), exitCode: result.status, stdout: result.stdout || '', error: result.error?.code || null };
-    report.tailComparison.push(observation);
-    assert.equal(result.error, undefined, 'bounded diagnostic decode must exit');
-    assert.equal(result.status, 0, result.stderr);
-  }
+  require('./compare-native-voice.cjs').compareDecoder({ python, source, data, model: MODEL,
+    wake: defaults.wakeWord.phrase, commands, pcm: speech(commands.playMissedReplies), report });
   const custom = { ...commands, microphoneOff: 'Disable microphone' };
   validateConfig({ ...defaults, wakeWord: { ...defaults.wakeWord, commands: custom } });
   const cases = Object.keys(commands).map(action => ({ name: action, text: commands[action], action }));

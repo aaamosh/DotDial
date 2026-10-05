@@ -194,7 +194,9 @@ def main():
                 decoder=str(model / "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"),
                 joiner=str(model / "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"),
                 keywords_file=keyword.name, num_threads=1, sample_rate=16000,
-                feature_dim=80, max_active_paths=4, keywords_score=3.0,
+                # Commands add seven competing labels; widen search without
+                # lowering the acoustic trigger threshold or changing wake-only mode.
+                feature_dim=80, max_active_paths=8 if commands is not None else 4, keywords_score=3.0,
                 keywords_threshold=round(.21-.02*max(1,min(10,args.sensitivity)),3),
                 num_trailing_blanks=1, provider="cpu")
             stream = spotter.create_stream()

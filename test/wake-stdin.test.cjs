@@ -133,7 +133,8 @@ class Stream:
         self.index+=1
 class Spotter:
     def __init__(self, **options):
-        assert options['max_active_paths'] == 4
+        assert options['max_active_paths'] == 8
+        assert options['keywords_score'] == 3.0 and options['keywords_threshold'] == 0.09
         entries=Path(options['keywords_file']).read_text().splitlines()
         assert len(entries) == 8 and entries[0] == 'HEY DOT @wake'
         assert {entry.rsplit(' @',1)[1] for entry in entries} == {'wake', *m['COMMAND_KEYS']}
