@@ -124,7 +124,7 @@ test('call controls expose icon-only labels and rounded glass clipping', () => {
   assert.match(css, /\.panel-glass\s*\{[^}]*border-radius:\s*12px/s);
 });
 
-test('Quit menu waits for shutdown and ignores repeated quit requests', async () => {
+for (const platform of ['linux', 'darwin']) test(`Quit menu waits for shutdown and ignores repeated quit requests (${platform})`, async () => {
   const app = new EventEmitter();
   let quitRequests = 0, preventedQuits = 0, defaultQuits = 0, exitCalls = 0;
   app.quit = () => {
@@ -158,7 +158,7 @@ test('Quit menu waits for shutdown and ignores repeated quit requests', async ()
     Tray,
     Menu: { buildFromTemplate: template => template },
     ipcMain: { handle() {}, removeHandler() {} },
-    nativeImage: { createFromBuffer: () => ({}) },
+    nativeImage: { createFromBuffer: () => ({ addRepresentation() {}, setTemplateImage() {} }) },
     app,
   };
   const originalLoad = Module._load;
@@ -171,7 +171,7 @@ test('Quit menu waits for shutdown and ignores repeated quit requests', async ()
   try {
     const { createDesktop } = require('../src/desktop.cjs');
     const commands = [];
-    desktop = createDesktop({ command: async name => {
+    desktop = createDesktop({ platform, command: async name => {
       commands.push(name);
       if (name === 'QUIT') app.quit();
       return { status: 'ok' };

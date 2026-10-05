@@ -17,11 +17,20 @@ DotDial has no analytics or telemetry. Normal use still contacts ChatGPT because
 - The configured total storage limit defaults to 200 MiB. Keep the data directory private because it may contain spoken content.
 - The optional wake-word recognizer runs locally after its model is installed. When enabled, it continues using the microphone locally during calls, including while transmission to the dot is muted. Recognizing the phrase can unmute the call microphone and speakers; a short cue confirms activation. Wake word is off by default. Dependencies and the model are downloaded only when you explicitly start setup from Voice settings or run the installer from a source checkout. The wake input can use the system default or an explicitly selected PortAudio device; scanning lists device and host API names without opening an audio stream. The selected device names are stored in the local settings file.
 
+On macOS, wake audio capture stays in DotDial and is sent only to its local Python
+recognizer over a bounded pipe. Python does not request a separate microphone.
+Native microphone consent applies to DotDial; denying it prevents microphone
+operations. The macOS orange microphone indicator can remain on while local wake
+listening is enabled, even when call transmission is muted.
+
 ## Files and retention
 
 Custom connection sounds are read only from the local MP3 or WAV path you choose. They are never uploaded. A decoded PCM copy is held in a private temporary directory under `${XDG_RUNTIME_DIR:-/run/user/<uid>}/dotdial/` and removed on normal exit. On Linux, `/run/user/<uid>` is the fallback when `XDG_RUNTIME_DIR` is unset. After a crash the copy can remain until the runtime directory is cleared, normally at logout or reboot. The original sound file is not modified or deleted.
 
-Defaults follow XDG Base Directory paths:
+The table below shows Linux XDG defaults. macOS stores persistent data in
+`~/Library/Application Support/DotDial/` and cache in `~/Library/Caches/DotDial/`;
+its runtime socket and temporary audio use a private directory under the per-user
+temporary directory. See [macOS paths and removal](MACOS.md#local-files-and-cli).
 
 | Purpose | Path |
 | --- | --- |

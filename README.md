@@ -103,9 +103,11 @@ The example phrase is **Hey Dot**. Phrase and sensitivity changes apply immediat
 
 ## Run from source
 
-The commands below use `main`, which currently contains the **Linux implementation**. The published macOS preview is built from separate source revision [`54889c5b04fe3dc32b79084d56bbec6e187a53de`](https://github.com/aaamosh/DotDial/commit/54889c5b04fe3dc32b79084d56bbec6e187a53de); follow its [macOS source-build guide](https://github.com/aaamosh/DotDial/blob/54889c5b04fe3dc32b79084d56bbec6e187a53de/docs/MACOS.md#build-and-verify-from-source). The macOS port is tracked in [PR #1](https://github.com/aaamosh/DotDial/pull/1).
+The source tree supports Linux and macOS. See the [macOS source-build guide](docs/MACOS.md#build-and-verify-from-source) for native packaging and verification. The published macOS Preview 1 was built from revision [`54889c5b04fe3dc32b79084d56bbec6e187a53de`](https://github.com/aaamosh/DotDial/commit/54889c5b04fe3dc32b79084d56bbec6e187a53de); later source changes are not part of those downloads.
 
-Requirements: Node.js 22.12 or later, npm, `flock` from util-linux, and a Linux x86_64 desktop session.
+Requirements: Node.js 22.12 or later, npm, and a Linux x86_64 or macOS 13+ desktop session.
+Linux also requires `flock` from util-linux.
+macOS source builds also require Apple's command-line developer tools (`cc`); the packaged app does not.
 
 ```sh
 git clone https://github.com/aaamosh/DotDial.git

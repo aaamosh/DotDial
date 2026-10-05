@@ -5,22 +5,19 @@ const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { electronLayout } = require('../src/runtime_paths.cjs');
 const {
   ConfigError,
   validateConfig,
   loadConfigSnapshot,
   saveConfig,
   getPaths,
+  configLockCommand,
 } = require('../src/config.cjs');
 const { resolveWakeRuntime, wakeModelReady } = require('../src/wake-runtime.cjs');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-const MAIN_SCRIPT = path.join(PROJECT_ROOT, 'src', 'main.cjs');
-const PACKAGED_ELECTRON = path.resolve(PROJECT_ROOT, '..', '..', 'dotdial-runtime');
-const PACKAGED_LAYOUT = process.env.ELECTRON_RUN_AS_NODE === '1' &&
-  path.basename(path.dirname(PROJECT_ROOT)) === 'resources' && fs.existsSync(PACKAGED_ELECTRON);
-const RUNTIME_ELECTRON = PACKAGED_LAYOUT ? PACKAGED_ELECTRON : path.join(PROJECT_ROOT, 'node_modules', 'electron', 'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron');
+const { mainScript: MAIN_SCRIPT, packaged: PACKAGED_LAYOUT, electron: RUNTIME_ELECTRON } = electronLayout(PROJECT_ROOT);
 
 const USAGE = `DotDial local agent
 
@@ -201,16 +198,16 @@ function doctor(configFile, electronOverride) {
   const launcherCommand = config?.network.signalingLauncher[0];
   const launcherFound = launcherCommand ? !!resolveExecutable(launcherCommand) : true;
   const wakeRuntime = config ? resolveWakeRuntime(config.wakeWord, paths) : null;
-  const pythonFound = config?.wakeWord.enabled ? !!resolveExecutable(wakeRuntime.python) : null;
+  const pythonFound = config?.wakeWord.enabled ? !!(wakeRuntime.python && resolveExecutable(wakeRuntime.python)) : null;
   const modelFound = config?.wakeWord.enabled ? wakeModelReady(wakeRuntime.model) : null;
   const socketLengthOk = Buffer.byteLength(paths.socketPath) < 104;
   const checks = {
-    platformLinux: process.platform === 'linux',
+    platformSupported: ['linux', 'darwin'].includes(process.platform),
     node: Number(process.versions.node.split('.')[0]) >= 22,
     config: !configError,
     electron: !!electron,
     mainScript: mainExists,
-    configLockUtility: !!resolveExecutable('flock'),
+    configLockUtility: !!resolveExecutable(configLockCommand().command),
     configDirectoryWritable: writableDirectoryOrParent(path.dirname(configFile)),
     stateDirectoryWritable: writableDirectoryOrParent(paths.stateDir),
     dataDirectoryWritable: writableDirectoryOrParent(paths.dataDir),
@@ -224,6 +221,8 @@ function doctor(configFile, electronOverride) {
   const ok = Object.values(checks).every(value => value === null || value === true);
   writeJson({
     ok,
+    platform: process.platform,
+    architecture: process.arch,
     checks,
     paths: {
       configFile,
@@ -253,7 +252,7 @@ function allowlistedEnvironment() {
 
 function runApp(configFile, electronOverride, appOptions = []) {
   const snapshot = loadConfigSnapshot(configFile);
-  if (process.platform !== 'linux') throw fail('DOTDIAL_PLATFORM_UNSUPPORTED', 'This source build currently supports Linux only');
+  if (!['linux', 'darwin'].includes(process.platform)) throw fail('DOTDIAL_PLATFORM_UNSUPPORTED', 'DotDial supports Linux and macOS');
   const electron = electronPath(electronOverride);
   if (!electron) throw fail('DOTDIAL_ELECTRON_MISSING', 'Pinned Electron runtime was not found; run the project install step or pass --electron');
   if (!fs.existsSync(MAIN_SCRIPT)) throw fail('DOTDIAL_MAIN_MISSING', 'DotDial Electron entry point was not found');
@@ -261,7 +260,7 @@ function runApp(configFile, electronOverride, appOptions = []) {
   const executable = prefix.length ? resolveExecutable(prefix[0]) : electron;
   if (!executable) throw fail('DOTDIAL_LAUNCHER_MISSING', 'Configured signaling launcher was not found in PATH');
   const prefixArgs = prefix.length ? prefix.slice(1) : [];
-  const applicationArgs = PACKAGED_LAYOUT ? [] : [MAIN_SCRIPT];
+  const applicationArgs = PACKAGED_LAYOUT && electron === RUNTIME_ELECTRON ? [] : [MAIN_SCRIPT];
   const args = [
     ...prefixArgs,
     ...(prefix.length ? [electron] : []),

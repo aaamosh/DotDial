@@ -1,0 +1,103 @@
+name: macOS preview packages
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    env:
+      # Darwin's normal long temporary path can exceed Unix socket path limits.
+      TMPDIR: /tmp
+      DOTDIAL_TARGET_ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Check out the exact source commit
+        uses: actions/checkout@v4
+      - name: Set up the pinned Node.js build runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - name: Set up Python for native offline wake validation
+        id: wake-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/wake-requirements.txt
+      - name: Verify native build host
+        run: node -e 'if (process.platform !== "darwin" || process.arch !== process.env.DOTDIAL_TARGET_ARCH) throw Error("native_mac_architecture_required"); console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version}));'
+      - name: Install pinned project dependencies
+        run: npm ci
+      - name: Test platform behavior and audit public source
+        run: |
+          npm test
+          npm run check:public
+          python3 -m py_compile scripts/setup-wake.py src/wake/listener.py
+      - name: Check out the pinned open-source speech generator
+        uses: actions/checkout@v4
+        with:
+          repository: festvox/flite
+          ref: 6c9f20dc915b17f5619340069889db0aa007fcdc
+          path: build/qa-flite/source
+          persist-credentials: false
+      - name: Build private speech fixtures without an audio device
+        timeout-minutes: 6
+        run: python3 scripts/prepare-wake-speech.py --flite-source "$PWD/build/qa-flite/source" --output-dir "$PWD/build/qa-wake-speech"
+      - name: Build native ad-hoc signed preview ZIP and DMG
+        run: node scripts/package-macos.cjs --preview
+      - name: Verify extracted bundles, CLI, GUI, WebRTC, wake and DMG
+        run: node scripts/verify-macos-package.cjs
+        env:
+          DOTDIAL_SMOKE_PYTHON: ${{ steps.wake-python.outputs.python-path }}
+      - name: Save downloadable native preview packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotdial-macos-${{ matrix.arch }}-preview-${{ github.sha }}
+          path: |
+            dist/macos-${{ matrix.arch }}/*.app.zip
+            dist/macos-${{ matrix.arch }}/*.dmg
+            dist/macos-${{ matrix.arch }}/*.manifest.json
+            dist/macos-${{ matrix.arch }}/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve speech fixtures, bounded logs and provenance
+        if: always()
+        run: |
+          qa_speech_dir="build/macos-qa/$DOTDIAL_TARGET_ARCH/speech-preparation"
+          if [ -d build/qa-wake-speech ]; then
+            mkdir -p "$qa_speech_dir"
+            for file in build/qa-wake-speech/*.log build/qa-wake-speech/*.json build/qa-wake-speech/*.wav; do
+              if [ -f "$file" ]; then cp "$file" "$qa_speech_dir/"; fi
+            done
+            if [ -f build/qa-flite/source/COPYING ]; then cp build/qa-flite/source/COPYING "$qa_speech_dir/Flite-COPYING"; fi
+          fi
+      - name: Save small native verification report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotdial-macos-${{ matrix.arch }}-qa-${{ github.sha }}
+          path: build/macos-qa/${{ matrix.arch }}/
+          if-no-files-found: warn
+          retention-days: 30

@@ -3,6 +3,7 @@
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const api = window.dotdial;
+const isMac = api?.platform === 'darwin';
 const view = new URLSearchParams(location.search).get('view') || 'settings';
 
 const COPY = {
@@ -85,6 +86,41 @@ const COPY = {
 
 };
 
+if (isMac) Object.assign(COPY.en, {
+  dotNameHint: 'This name appears in the menu bar and call panel.',
+  microphoneHint: 'This microphone is used for both calls and local wake-word recognition on this Mac.',
+  pythonPathHint: 'Optional wake word needs Python 3.10–3.13. Homebrew Python 3.12 or an absolute interpreter path is supported.',
+  trayBehavior: 'Menu bar and startup',
+  trayBehaviorHint: 'Wake-word listening and call status stay available from the macOS menu bar.',
+  hotkeyHint: 'Default: Command+Shift+Space (⌘⇧Space). Choose another shortcut if an app already uses it.',
+  startAtLoginHint: 'Open the installed DotDial app when you sign in to your Mac.',
+  menuShown: 'Menu bar controls opened.',
+  signalingLauncherHint: 'Use dotdial-cli run to apply an external launcher. Opening the app directly does not apply this prefix.',
+});
+
+const PLATFORM_ERRORS = {
+  microphone_permission_required: 'Allow DotDial to use the microphone, then try the action again.',
+  microphone_permission_denied: 'Microphone access is off. Enable DotDial in System Settings → Privacy & Security → Microphone, then reopen DotDial.',
+  microphone_permission_restricted: 'Microphone access is restricted by this Mac’s policy.',
+  microphone_permission_unavailable: 'macOS microphone permission could not be checked. Reopen DotDial and try again.',
+  login_item_requires_packaged_app: 'Start at login is available after installing DotDial.app in Applications.',
+  login_item_custom_launch_unsupported: 'Start at login needs the standard app configuration without a custom signaling launcher.',
+  login_item_requires_approval: 'Approve DotDial in System Settings → General → Login Items & Extensions.',
+  login_item_unavailable: 'macOS could not update the login item. Check System Settings → General → Login Items & Extensions.',
+  wake_python_unavailable: 'Install Python 3.10–3.13 for the optional wake word, or select its absolute path in Voice settings.',
+  wake_python_version_unsupported: 'The optional wake word needs Python 3.10–3.13. Select a supported interpreter in Voice settings.',
+  wake_audio_unavailable: 'The wake word could not open the selected microphone. Check microphone access and choose an available input in Voice settings.',
+  wake_audio_protocol_error: 'Local wake-word audio stopped unexpectedly. Disable and re-enable the wake word to restart it.',
+  wake_audio_backpressure: 'Local wake-word recognition could not keep up with microphone audio. Disable and re-enable it; if this repeats, check system load.',
+  wake_audio_sample_rate: 'The selected microphone could not provide audio for local wake-word recognition. Choose another input in Voice settings.',
+  wake_start_timeout: 'Local wake-word recognition took too long to start. Check the Python and model settings, then try again.',
+};
+
+function platformError(code) {
+  if (code === 'settings_save_superseded') return 'A newer save replaced this request. Your latest settings were kept.';
+  return isMac ? PLATFORM_ERRORS[code] : undefined;
+}
+
 const ICONS = {
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v4M8 22h8"/></svg>',
   micOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v4M8 22h8"/><path d="m15 13 6 6m0-6-6 6" stroke="#202226" stroke-width="4"/><path d="m15 13 6 6m0-6-6 6" stroke="#bb7276" stroke-width="2.4"/></svg>',
@@ -96,7 +132,7 @@ const ICONS = {
 const DEFAULTS = {
   version: 1,
   dot: { url: '', displayName: 'My dot', expectedEmail: '' },
-  general: { startAtLogin: false, hotkey: 'CommandOrControl+Alt+Space' },
+  general: { startAtLogin: false, hotkey: isMac ? 'Command+Shift+Space' : 'CommandOrControl+Alt+Space' },
   audio: { bufferMs: 0, microphoneDeviceId: 'default', outputDeviceId: 'default', sounds: true, connectionSound: 'modem', customSoundPath: '', soundVolume: .55, microphoneInitiallyMuted: false, speakersInitiallyMuted: false },
   wakeWord: { enabled: false, phrase: 'Hey Dot', sensitivity: 6, modelPath: '', pythonPath: 'python3', deviceName: '', deviceHostApi: '' },
   recording: { enabled: true, maxMegabytes: 200 },
@@ -418,7 +454,7 @@ function takeForm() {
   config.dot.expectedEmail = email.slice(0, 254);
   config.dot.url = dotUrl.slice(0, 2048);
   config.general.startAtLogin = $('#start-at-login').checked;
-  config.general.hotkey = $('#global-hotkey').value.trim().slice(0, 80) || 'CommandOrControl+Alt+Space';
+  config.general.hotkey = $('#global-hotkey').value.trim().slice(0, 80) || DEFAULTS.general.hotkey;
   config.audio.bufferMs = Math.round(numeric('audio-buffer', 0, 2000) / 50) * 50;
   config.audio.microphoneDeviceId = $('#audio-microphone').value || 'default';
   config.audio.outputDeviceId = $('#audio-output').value || 'default';
@@ -494,9 +530,10 @@ async function saveForm() {
     const result = await api.saveConfig(config, configHash);
     if (!result?.ok) {
       const conflict = ['config_conflict', 'revision_mismatch', 'hash_mismatch', 'DOTDIAL_CONFIG_CONFLICT'].includes(result?.error);
-      $('#save-status').textContent = conflict ? copy('configConflict') : copy('saveFailed');
+      const message = conflict ? copy('configConflict') : (platformError(result?.error) || copy('saveFailed'));
+      $('#save-status').textContent = message;
       $('#reload-config').hidden = !conflict;
-      toast(conflict ? copy('configConflict') : copy('saveFailed'), 'error');
+      toast(message, 'error');
       return false;
     }
     configHash = result.hash;
@@ -506,9 +543,10 @@ async function saveForm() {
     return true;
   } catch (error) {
     const conflict = ['config_conflict', 'revision_mismatch', 'DOTDIAL_CONFIG_CONFLICT'].includes(error?.code);
-    $('#save-status').textContent = conflict ? copy('configConflict') : copy('saveFailed');
+    const message = conflict ? copy('configConflict') : (platformError(error?.code) || copy('saveFailed'));
+    $('#save-status').textContent = message;
     $('#reload-config').hidden = !conflict;
-    toast(conflict ? copy('configConflict') : copy('saveFailed'), 'error');
+    toast(message, 'error');
     return false;
   }
 }
@@ -516,7 +554,7 @@ async function runCommand(name, { notice = false } = {}) {
   try {
     const result = await api.command(name);
     const accepted = ['accepted_wake', 'accepted_stop', 'playing_missed_messages', 'playback_stopped', 'muting_microphone', 'unmuting_microphone', 'microphone_on', 'microphone_off', 'muting_speakers', 'unmuting_speakers', 'ok', 'success', 'preview'];
-    if (notice && (!result || !accepted.includes(result.status))) toast(copy('controlFailed'), 'error');
+    if (notice && (!result || !accepted.includes(result.status))) toast(platformError(result?.status) || copy('controlFailed'), 'error');
     return result;
   } catch { if (notice) toast(copy('controlFailed'), 'error'); return { status: 'operation_failed' }; }
 }
@@ -538,10 +576,10 @@ async function scanDevices() {
     const config = loadedConfig || DEFAULTS;
     setSelectOptions($('#audio-microphone'), inputs, config.audio.microphoneDeviceId || 'default', 'input');
     setSelectOptions($('#audio-output'), outputs, config.audio.outputDeviceId || 'default', 'output');
-    status.textContent = result?.error ? copy('devicesUnavailable') : (inputs.length || outputs.length ? copy('devicesFound') : copy('devicesEmpty'));
+    status.textContent = result?.error ? (platformError(result.error) || copy('devicesUnavailable')) : (inputs.length || outputs.length ? copy('devicesFound') : copy('devicesEmpty'));
     status.className = `status-note devices-status${result?.error ? ' error' : ' success'}`;
-  } catch {
-    status.textContent = copy('devicesUnavailable'); status.className = 'status-note devices-status error';
+  } catch (error) {
+    status.textContent = platformError(error?.code) || copy('devicesUnavailable'); status.className = 'status-note devices-status error';
   }
 }
 async function scanWakeDevices() {
@@ -637,6 +675,26 @@ function updatePanel(state = {}) {
   updateSidebar(loadedConfig || DEFAULTS, state);
 }
 function updateSettingsState(state = {}) {
+  const hotkeyStatus = $('#platform-hotkey-status');
+  if (hotkeyStatus) {
+    hotkeyStatus.hidden = state.hotkey_available !== false;
+    hotkeyStatus.textContent = 'The call shortcut is unavailable or already in use. Choose another shortcut below; menu controls still work.';
+  }
+  const permission = $('#platform-permission-status');
+  if (permission) {
+    permission.hidden = !isMac || !state.microphone_permission || state.microphone_permission === 'granted';
+    const code = state.microphone_permission === 'not-determined' ? 'microphone_permission_required'
+      : state.microphone_permission === 'denied' ? 'microphone_permission_denied'
+      : state.microphone_permission === 'restricted' ? 'microphone_permission_restricted' : 'microphone_permission_unavailable';
+    permission.textContent = platformError(code) || '';
+    permission.className = `status-note${state.microphone_permission === 'not-determined' ? '' : ' error'}`;
+  }
+  const loginItem = $('#platform-login-status');
+  if (loginItem) {
+    loginItem.hidden = !isMac || !state.login_item_error;
+    loginItem.textContent = platformError(state.login_item_error) || '';
+    loginItem.className = 'status-note error';
+  }
   const stateNode = $('#sidebar-state-label');
   if (stateNode) stateNode.textContent = phaseText(state);
   const pulse = $('#sidebar-state-pulse');
@@ -657,7 +715,7 @@ function updateSettingsState(state = {}) {
       error: ['wakeStatusError', 'error'],
     };
     const row = messages[state.wake_status];
-    if (row) { wakeStatus.textContent = copy(row[0]); wakeStatus.className = `status-note ${row[1]}`.trim(); }
+    if (row) { wakeStatus.textContent = platformError(state.wake_error) || copy(row[0]); wakeStatus.className = `status-note ${row[1]}`.trim(); }
   }
   if (!unsaved) {
     const pending = Boolean(state.config_error || state.config_pending);
@@ -714,6 +772,14 @@ function setupPanel() {
   }, true);
 }
 function setupSettings() {
+  if (isMac) {
+    // macOS captures wake audio through Chromium using the call microphone.
+    // The separate name/host API selector belongs to Linux PortAudio only.
+    for (const selector of ['#wake-input', '#scan-wake-devices']) {
+      const field = $(selector)?.closest('.field');
+      if (field) field.hidden = true;
+    }
+  }
   $$('.nav-item').forEach(button => button.addEventListener('click', () => showPage(button.dataset.section)));
   $$('[data-go-section]').forEach(button => button.addEventListener('click', () => showPage(button.dataset.goSection)));
   $('#top-save').addEventListener('click', saveForm);
@@ -724,7 +790,7 @@ function setupSettings() {
   $('#login-connect').addEventListener('click', async () => { await runCommand('LOGIN'); toast(copy('accountOpen')); });
   $('#paste-dot-link').addEventListener('click', pasteDotLink);
   $('#scan-devices').addEventListener('click', scanDevices);
-  $('#scan-wake-devices').addEventListener('click', scanWakeDevices);
+  if (!isMac) $('#scan-wake-devices').addEventListener('click', scanWakeDevices);
   $('#choose-sound-file').addEventListener('click', () => { void selectCustomSound(); });
   $('#preview-sound').addEventListener('click', () => { void playSoundPreview(); });
   $('#stop-sound-preview').addEventListener('click', () => { void stopSoundPreview(); });
@@ -741,7 +807,7 @@ function setupSettings() {
       $('#wake-setup-status').className = 'status-note';
     } else {
       const success = ['ready', 'ok', 'success', 'wake_setup_complete'].includes(result?.status);
-      $('#wake-setup-status').textContent = success ? copy('wakeSetupDone') : copy('wakeSetupFailed');
+      $('#wake-setup-status').textContent = success ? copy('wakeSetupDone') : platformError(result?.status) || copy('wakeSetupFailed');
       $('#wake-setup-status').className = `status-note ${success ? 'success' : 'error'}`;
     }
   });

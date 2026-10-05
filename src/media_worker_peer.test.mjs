@@ -10,6 +10,11 @@ const rpcPath = fileURLToPath(new URL('./media_worker_rpc.cjs', import.meta.url)
 
 async function workerFixture(t, mode) {
   const directory = await mkdtemp(path.join(tmpdir(), 'dotdial-media-peer-test-'));
+  const peers = new Set();
+  t.after(async () => {
+    await Promise.all([...peers].map(peer => peer.close()));
+    await rm(directory, { recursive: true, force: true });
+  });
   const launcher = path.join(directory, 'launcher.sh');
   const worker = path.join(directory, 'fake-worker.cjs');
   await writeFile(launcher, '#!/bin/sh\nexec "$@"\n');
@@ -45,8 +50,7 @@ async function workerFixture(t, mode) {
     }
     process.stdin.once('end', () => setTimeout(() => process.exit(0), 5));
   `);
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  return { directory, launcher, worker };
+  return { directory, launcher, worker, trackPeer(peer) { peers.add(peer); } };
 }
 
 function createPeer(fixture, extra = {}) {
@@ -64,9 +68,10 @@ function createPeer(fixture, extra = {}) {
 }
 
 async function waitFor(predicate, description) {
-  for (let attempt = 0; attempt < 100; attempt++) {
+  const deadline = performance.now() + 3_000;
+  while (performance.now() < deadline) {
     if (predicate()) return;
-    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setTimeout(resolve, 10));
   }
   assert.fail(`timed out waiting for ${description}`);
 }
@@ -80,6 +85,7 @@ test('routed peer reports an uncertain final archive when worker peer.close fail
     setRecording: active => recordingStates.push(active),
   } });
   const peer = new Peer();
+  fixture.trackPeer(peer);
   await peer.ready;
   await waitFor(() => peer.recordingActive, 'recording start notification');
   await peer.close();
@@ -97,6 +103,7 @@ test('a hung final flush clears active recording and ignores late active notific
     setRecording: active => recordingStates.push(active),
   } });
   const peer = new Peer();
+  fixture.trackPeer(peer);
   await peer.ready;
   await waitFor(() => peer.recordingActive, 'recording start notification');
   await peer.close();
@@ -118,6 +125,7 @@ test('routed peer reports worker crashes and completes bounded cleanup', async t
     setError: code => errors.push(code),
   } });
   const peer = new Peer(() => {}, () => {}, error => reportFailure(error.code));
+  fixture.trackPeer(peer);
   await peer.ready;
   let timer;
   try {
@@ -139,6 +147,7 @@ test('a timed-out microphone acquisition retires the indeterminate media peer', 
   const failure = new Promise(resolve => { reportFailure = resolve; });
   const Peer = createPeer(fixture);
   const peer = new Peer(() => {}, () => {}, error => reportFailure(error.code));
+  fixture.trackPeer(peer);
   await peer.ready;
   const timeout = Object.assign(new Error('media_worker_timeout'), { code: 'media_worker_timeout' });
   peer.call = async () => { throw timeout; };

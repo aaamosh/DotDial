@@ -66,7 +66,7 @@ function fixture(t, { model = true, onSpawn } = {}) {
   const changes = [];
   const wakes = [];
   const manager = new WakeManager({
-    paths, spawn,
+    paths, spawn, platform: 'linux',
     onWake: () => wakes.push('wake'),
     onChange: () => changes.push({ status: manager.status, error: manager.error }),
   });
@@ -190,7 +190,7 @@ test('installer cleanup escalates to SIGKILL when a child ignores SIGTERM', asyn
   const childPidFile = path.join(f.root, 'installer-child.pid');
   const childSource = `process.on('SIGTERM',()=>{});require('node:fs').writeFileSync(${JSON.stringify(childPidFile)},String(process.pid));setInterval(()=>{},1000)`;
   const parentSource = `const {spawn}=require('node:child_process');spawn(process.execPath,['-e',${JSON.stringify(childSource)}],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(1));setInterval(()=>{},1000)`;
-  const { spawn } = require('node:child_process');
+  const { spawn, execFileSync } = require('node:child_process');
   f.manager.spawn = (_command, _args, options) => spawn(process.execPath, ['-e', parentSource], options);
 
   try {
@@ -207,13 +207,19 @@ test('installer cleanup escalates to SIGKILL when a child ignores SIGTERM', asyn
 
     assert.equal(f.manager.installing, false);
     assert.equal(f.manager.status, 'setup_required');
-    const liveGroupPids = fs.readdirSync('/proc').filter(name => /^\d+$/u.test(name)).flatMap(pid => {
-      try {
-        const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-        return Number(fields[2]) === installer.pid && fields[0] !== 'Z' ? [Number(pid)] : [];
-      } catch { return []; }
-    });
+    // macOS has no /proc; inspect the same process-group membership through ps.
+    const liveGroupPids = process.platform === 'darwin'
+      ? execFileSync('ps', ['-axo', 'pid=,pgid=,stat='], { encoding: 'utf8' }).split('\n').flatMap(line => {
+        const [pid, group, state] = line.trim().split(/\s+/u);
+        return Number(group) === installer.pid && state && !state.startsWith('Z') ? [Number(pid)] : [];
+      })
+      : fs.readdirSync('/proc').filter(name => /^\d+$/u.test(name)).flatMap(pid => {
+        try {
+          const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+          const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+          return Number(fields[2]) === installer.pid && fields[0] !== 'Z' ? [Number(pid)] : [];
+        } catch { return []; }
+      });
     assert.deepEqual(liveGroupPids, [], 'no installer process should remain alive in the process group');
   } finally {
     await f.manager.close();

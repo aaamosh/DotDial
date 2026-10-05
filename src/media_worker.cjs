@@ -28,6 +28,7 @@ catch (error) { process.exitCode = 2; process.exit(); }
 if (!userData) return;
 
 app.setName('DotDialMedia');
+if (process.platform === 'darwin') app.setActivationPolicy('accessory');
 app.setPath('userData', userData);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 

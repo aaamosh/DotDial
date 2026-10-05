@@ -127,6 +127,32 @@ function createTrayPng(tone = 'idle', missedCount = 0) {
   ]);
 }
 
+// Native menu-bar templates follow the user's light/dark appearance. State
+// changes use shapes because macOS replaces the source color of a template.
+function createMacTrayPng(tone = 'idle', scale = 1) {
+  const size = 16 * scale, stride = size * 4, raw = Buffer.alloc((stride + 1) * size);
+  const ink = (x, y) => {
+    const dx = x - 8, dy = y - 8, radius = Math.hypot(dx, dy);
+    const ring = radius >= 4.7 && radius <= 6.3;
+    if (tone === 'connecting') return (ring && Math.abs(Math.sin(Math.atan2(dy, dx) * 2)) > 0.25) || radius < 1;
+    if (tone === 'warning') return ring || (Math.abs(dx) < 0.65 && y > 4.6 && y < 8.5) || Math.hypot(dx, y - 10.4) < 0.7;
+    return ring || radius < (tone === 'call' ? 3.1 : tone === 'listening' ? 2 : 0.9);
+  };
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let covered = 0;
+    for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
+      if (ink((x + (sx + 0.5) / 4) / scale, (y + (sy + 0.5) / 4) / scale)) covered++;
+    }
+    raw[y * (stride + 1) + 1 + x * 4 + 3] = Math.round(covered * 255 / 16);
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0); header.writeUInt32BE(size, 4); header[8] = 8; header[9] = 6;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', header), pngChunk('IDAT', require('node:zlib').deflateSync(raw)), pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
 function jsonClone(value, maxBytes = 48 * 1024) {
   let encoded;
   try { encoded = JSON.stringify(value); } catch { throw Object.assign(new Error('invalid_config'), { code: 'invalid_config' }); }
@@ -223,7 +249,7 @@ function clampSettingsBounds(bounds, workArea) {
   };
 }
 
-function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}, getAudioDevices, chooseSoundFile, previewSound, stopSoundPreview } = {}) {
+function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}, getAudioDevices, chooseSoundFile, previewSound, stopSoundPreview, platform = process.platform } = {}) {
   const electron = require('electron');
   const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, dialog } = electron;
   const stateProvider = typeof getSnapshot === 'function' ? getSnapshot : () => ({});
@@ -309,6 +335,7 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
       focusable: false,
     });
     panel.setAlwaysOnTop(true, 'floating');
+    if (platform === 'darwin') panel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     const display = screen.getPrimaryDisplay();
     savedPosition = readPanelPosition(positionFile);
     const requested = savedPosition || { x: display.workArea.x + Math.max(0, display.workArea.width - 142), y: display.workArea.y + Math.max(0, display.workArea.height - 114) };
@@ -370,6 +397,12 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   const panelAllowed = () => configCache?.config?.appearance?.showPanel !== false;
   const iconFor = state => {
     const view = presentState(state);
+    if (platform === 'darwin') {
+      const icon = nativeImage.createFromBuffer(createMacTrayPng(view.tone));
+      icon.addRepresentation({ scaleFactor: 2, dataURL: `data:image/png;base64,${createMacTrayPng(view.tone, 2).toString('base64')}` });
+      icon.setTemplateImage(true);
+      return icon;
+    }
     return nativeImage.createFromBuffer(createTrayPng(view.tone, view.missedCount));
   };
   const refreshTray = () => {
@@ -447,7 +480,10 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
         id: String(device?.id || '').slice(0, 256), label: String(device?.label || '').slice(0, 120),
       })).filter(device => device.id) : [];
       return { inputs: normalize(devices?.inputs), outputs: normalize(devices?.outputs) };
-    } catch { return { inputs: [], outputs: [], error: 'devices_unavailable' }; }
+    } catch (error) {
+      const code = safeErrorCode(error);
+      return { inputs: [], outputs: [], error: /^microphone_permission_(required|denied|restricted|unavailable)$/.test(code) ? code : 'devices_unavailable' };
+    }
   });
   handle(IPC.soundChoose, async event => {
     requireSettingsSender(event);
@@ -517,15 +553,19 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   if (typeof Tray === 'function') {
     const icon = iconFor(snapshot);
     tray = new Tray(icon);
-    tray.on('click', () => {
-      if (['starting', 'active', 'stopping'].includes(snapshot.state)) ensurePanel();
-      else void callCommand('WAKE');
-    });
-    tray.on('double-click', () => {
-      if (['starting', 'active', 'stopping'].includes(snapshot.state)) ensurePanel();
-      else openSettings();
-    });
-    tray.on('right-click', () => tray?.popUpContextMenu(buildContextMenu()));
+    if (platform !== 'darwin') {
+      tray.on('click', () => {
+        if (['starting', 'active', 'stopping'].includes(snapshot.state)) ensurePanel();
+        else void callCommand('WAKE');
+      });
+      tray.on('double-click', () => {
+        if (['starting', 'active', 'stopping'].includes(snapshot.state)) ensurePanel();
+        else openSettings();
+      });
+      tray.on('right-click', () => tray?.popUpContextMenu(buildContextMenu()));
+    }
+    // On macOS the native menu owns both clicks. Opening it must not also
+    // place a call; the Call item is the explicit action.
     refreshTray();
   }
 
@@ -559,4 +599,4 @@ function createDesktop({ getSnapshot, getConfig, saveConfig, command, paths = {}
   return api;
 }
 
-module.exports = { createDesktop, presentState, createTrayPng, readPanelPosition, savePanelPosition, clampPanelPosition, settingsWindowGeometry, clampSettingsBounds, IPC };
+module.exports = { createDesktop, presentState, createTrayPng, createMacTrayPng, readPanelPosition, savePanelPosition, clampPanelPosition, settingsWindowGeometry, clampSettingsBounds, IPC };

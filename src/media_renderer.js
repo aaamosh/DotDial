@@ -2,7 +2,7 @@
 
 (() => {
   let peer, channel, transceiver, microphone, silentContext, silentSource, silentTrack, closed = false, eventCount = 0;
-  let microphoneGeneration = 0;
+  let microphoneGeneration = 0, microphoneError = null;
   const output = document.getElementById('remote');
   const diagnostics = new AudioDiagnostics();
   const eventTypes = {};
@@ -17,6 +17,20 @@
   const stopStream = stream => stream?.getTracks().forEach(track => {
     if (track.readyState !== 'ended') track.stop();
   });
+  const liveMicrophoneTrack = () => microphone?.getAudioTracks().find(track => track.readyState === 'live');
+
+  async function restoreMicrophoneTrack(force = false) {
+    // Every asynchronous replacement must converge on the latest capture.
+    // In particular, delayed unplug cleanup must not silence a newer unmute.
+    while (!closed && transceiver) {
+      const generation = microphoneGeneration;
+      const track = liveMicrophoneTrack() || silentTrack;
+      if (track?.readyState !== 'live' || (!force && transceiver.sender.track === track)) return;
+      force = false;
+      try { await transceiver.sender.replaceTrack(track); } catch { return; }
+      if (generation === microphoneGeneration) return;
+    }
+  }
 
   function configure(options = {}) {
     if (peer) throw failure('media_already_started');
@@ -156,36 +170,55 @@
       stopStream(stream);
       throw failure('microphone_unavailable');
     }
+    if (track.readyState !== 'live') {
+      stopStream(stream);
+      microphoneError = 'microphone_ended';
+      throw failure('microphone_ended');
+    }
     microphone = stream;
+    let unexpectedlyEnded = false;
+    const onEnded = () => {
+      if (closed || microphone !== stream || generation !== microphoneGeneration) return;
+      unexpectedlyEnded = true;
+      microphoneGeneration++;
+      microphone = null;
+      microphoneError = 'microphone_ended';
+      stopStream(stream);
+      void restoreMicrophoneTrack();
+    };
+    track.addEventListener('ended', onEnded, { once: true });
     try {
       await transceiver.sender.replaceTrack(track);
     } catch (error) {
-      stopStream(stream);
       if (microphone === stream) microphone = null;
+      track.removeEventListener('ended', onEnded);
+      stopStream(stream);
+      if (unexpectedlyEnded) throw failure('microphone_ended');
       throw error;
     }
+    // readyState can change before the queued ended event reaches JavaScript.
+    if (track.readyState !== 'live') onEnded();
     if (closed || generation !== microphoneGeneration) {
-      stopStream(stream);
       if (microphone === stream) microphone = null;
+      track.removeEventListener('ended', onEnded);
+      stopStream(stream);
       // A mute or newer acquisition can race with replaceTrack(). Restore
       // only the current desired track if this stale completion won the race.
-      const currentTrack = microphone?.getAudioTracks()[0] || silentTrack;
-      if (!closed && currentTrack?.readyState === 'live' && transceiver.sender.track !== currentTrack) {
-        await transceiver.sender.replaceTrack(currentTrack).catch(() => {});
-      }
-      throw failure('cancelled');
+      await restoreMicrophoneTrack();
+      throw failure(unexpectedlyEnded ? 'microphone_ended' : 'cancelled');
     }
+    microphoneError = null;
     const settings = track.getSettings();
     return Object.fromEntries(['sampleRate', 'channelCount', 'echoCancellation', 'noiseSuppression', 'autoGainControl'].map(key => [key, settings[key]]));
   }
 
   async function stopMicrophone() {
     microphoneGeneration++;
-    stopStream(microphone);
+    const stream = microphone;
     microphone = null;
-    if (!closed && transceiver && silentTrack?.readyState === 'live') {
-      await transceiver.sender.replaceTrack(silentTrack).catch(() => {});
-    }
+    microphoneError = null;
+    stopStream(stream);
+    await restoreMicrophoneTrack(true);
   }
 
   async function setSpeakersMuted(muted) {
@@ -211,7 +244,7 @@
     if (!peer || closed) return {};
     const reports = await peer.getStats();
     return { engine: 'chromium_webrtc', connection_state: peer.connectionState, event_count: eventCount,
-      event_types: { ...eventTypes }, microphone_active: !!microphone, playback_error: playbackError,
+      event_types: { ...eventTypes }, microphone_active: !!liveMicrophoneTrack(), microphone_error: microphoneError, playback_error: playbackError,
       playback_started: playbackStarted, playback_reserve_ms: playbackReserveMs,
       recording_source: 'shared_buffered_stream', speaker_gain: speakerGain?.gain.value,
       clock_driver_muted: output.muted,

@@ -61,7 +61,7 @@ function appFileFilter(absolutePath) {
       relative === 'config.schema.json' || relative === 'config.example.json') return false;
   if (relative === 'bin' || relative.startsWith('bin/')) return false;
   if (relative === 'scripts') return false;
-  if (relative === 'scripts/setup-wake.py' || relative === 'scripts/wake-requirements.txt') return false;
+  if (relative === 'scripts/setup-wake.py' || relative === 'scripts/wake-requirements.txt' || relative === 'scripts/smoke-packaged.cjs') return false;
   if (relative === 'src' || relative.startsWith('src/')) {
     const sourceParts = relative.split('/');
     const basename = sourceParts.at(-1);
@@ -366,7 +366,8 @@ Description: A small Linux tray companion for calling a ChatGPT dot
   }
 }
 
-main().catch(error => {
+const build = process.platform === 'darwin' ? require('./package-macos.cjs').main : main;
+build().catch(error => {
   process.stderr.write(`Packaging failed: ${error.stack || error.message}\n`);
   process.exitCode = 1;
 });

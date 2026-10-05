@@ -14,6 +14,8 @@ const SKIP_DIRS = new Set([
 // Binary content cannot be audited as text. These exact screenshots, launch
 // media, and call sound assets have been reviewed; changes require a fresh review.
 const REVIEWED_BINARIES = new Map([
+  // Derived from src/assets/dotdial-macos.svg; all ICNS image sizes reviewed.
+  ['src/assets/dotdial.icns', '4d8a7700405a97ae509b1b052f15978c563b5fa996213629d8dd3c4a044cce45'],
   ['docs/media/dotdial-platforms-card.png', 'e8203d0aa7877db0dbbfbc5bd7b1a0300286f47d648fbb27a4e0ae97f9bd641b'],
   ['docs/media/dotdial-social-card.png', 'e7b261fd03f053257c34f44177bd8cdc3a97ec22126b45a81d89de2bcc2d8396'],
   ['docs/media/dotdial-preview-18s.mp4', 'a16902128a75db1e863b73ba0ab7a7f7a71d9b4efba93aafa2412da7b81381f7'],

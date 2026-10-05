@@ -11,11 +11,20 @@ import threading
 import time
 from pathlib import Path
 
-from device_selection import WakeDeviceError, resolve_input_device
-
 
 def emit(event, **kwargs):
     print(json.dumps({"event": event, **kwargs}), flush=True)
+
+
+def pcm_chunks(source, stopped=lambda: False):
+    """Read bounded mono 16 kHz float32-LE audio; EOF also stops the detector."""
+    while not stopped():
+        data = source.read(1600 * 4)
+        if not data:
+            return
+        if len(data) % 4:
+            raise ValueError("wake_audio_protocol_error")
+        yield data
 
 
 def main():
@@ -25,7 +34,9 @@ def main():
     parser.add_argument("--sensitivity", type=int, default=6)
     parser.add_argument("--device-name", default="")
     parser.add_argument("--device-host-api", default="")
-    parser.add_argument("--test-file", help="Offline synthetic/public fixture; never opens a microphone")
+    audio_mode = parser.add_mutually_exclusive_group()
+    audio_mode.add_argument("--test-file", help="Offline synthetic/public fixture; never opens a microphone")
+    audio_mode.add_argument("--stdin-audio", action="store_true", help="Read local 16 kHz mono float32-LE PCM; never opens a microphone")
     args = parser.parse_args()
     phrase = " ".join(args.phrase.strip().upper().split())
     if not phrase or not phrase.isascii() or len(phrase) > 48 or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '-" for c in phrase):
@@ -42,14 +53,15 @@ def main():
         emit("error", code="wake_dependencies_missing")
         return 2
     sd = None
-    if not args.test_file:
+    if not args.test_file and not args.stdin_audio:
         try:
             import sounddevice as sd
         except (ImportError, OSError):
             emit("error", code="wake_audio_dependency_unavailable")
             return 2
     input_device = None
-    if not args.test_file:
+    if not args.test_file and not args.stdin_audio:
+        from device_selection import WakeDeviceError, resolve_input_device
         try:
             input_device = resolve_input_device(sd, args.device_name, args.device_host_api)
         except WakeDeviceError as error:
@@ -63,7 +75,7 @@ def main():
         for _ in sys.stdin:
             pass
         stop.set()
-    if not args.test_file:
+    if not args.test_file and not args.stdin_audio:
         threading.Thread(target=parent_watch, daemon=True).start()
     try:
         processor = spm.SentencePieceProcessor(model_file=str(model / "bpe.model"))
@@ -107,6 +119,17 @@ def main():
                     decode(np.frombuffer(wav.readframes(wav.getnframes()), dtype=np.int16).astype(np.float32)/32768)
                     decode(np.zeros(8000,dtype=np.float32))
                 emit("complete")
+                return 0
+            if args.stdin_audio:
+                # The signed Electron app owns microphone capture and macOS
+                # permission. This process only decodes its private stdin pipe.
+                emit("ready")
+                for data in pcm_chunks(sys.stdin.buffer, stop.is_set):
+                    samples = np.frombuffer(data, dtype="<f4")
+                    if not np.all(np.isfinite(samples)):
+                        emit("error", code="wake_audio_protocol_error")
+                        return 2
+                    decode(samples)
                 return 0
             chunks = queue.Queue(maxsize=40)
             def callback(data, _frames, _time, _status):

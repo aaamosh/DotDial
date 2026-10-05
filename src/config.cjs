@@ -15,7 +15,7 @@ const DEFAULTS = {
   },
   general: {
     startAtLogin: false,
-    hotkey: 'CommandOrControl+Alt+Space',
+    hotkey: process.platform === 'darwin' ? 'Command+Shift+Space' : 'CommandOrControl+Alt+Space',
   },
   audio: {
     bufferMs: 0,
@@ -257,19 +257,23 @@ function getPaths(overrides = {}) {
   if (!isRecord(overrides)) throw new ConfigError('DOTDIAL_PATH_INVALID', 'Path overrides must be an object');
   const env = isRecord(overrides.env) ? overrides.env : process.env;
   const home = absoluteDir(overrides.home || os.homedir(), 'home');
-  const choose = (override, envName, fallback, field) => absoluteDir(
-    override || env[envName] || path.join(home, fallback), field);
-  const configHome = choose(overrides.configHome, 'XDG_CONFIG_HOME', '.config', 'configHome');
-  const stateHome = choose(overrides.stateHome, 'XDG_STATE_HOME', '.local/state', 'stateHome');
-  const dataHome = choose(overrides.dataHome, 'XDG_DATA_HOME', '.local/share', 'dataHome');
-  const cacheHome = choose(overrides.cacheHome, 'XDG_CACHE_HOME', '.cache', 'cacheHome');
-  const runtimeFallback = typeof process.getuid === 'function' ? `/run/user/${process.getuid()}` : path.join(os.tmpdir(), 'dotdial-runtime');
-  const runtimeHome = absoluteDir(overrides.runtimeHome || env.XDG_RUNTIME_DIR || runtimeFallback, 'runtimeHome');
-  const configDir = path.join(configHome, 'dotdial');
-  const stateDir = path.join(stateHome, 'dotdial');
-  const dataDir = path.join(dataHome, 'dotdial');
-  const cacheDir = path.join(cacheHome, 'dotdial');
-  const runtimeDir = path.join(runtimeHome, 'dotdial');
+  const platform = overrides.platform || process.platform;
+  const mac = platform === 'darwin';
+  const support = path.join(home, 'Library', 'Application Support', 'DotDial');
+  // Explicit XDG roots remain useful for isolated tests and custom installs on
+  // either platform. Native macOS defaults never write into /run or the .app.
+  const choose = (override, envName, fallback, field) => override || env[envName]
+    ? path.join(absoluteDir(override || env[envName], field), 'dotdial')
+    : fallback;
+  const configDir = choose(overrides.configHome, 'XDG_CONFIG_HOME', mac ? support : path.join(home, '.config', 'dotdial'), 'configHome');
+  const stateDir = choose(overrides.stateHome, 'XDG_STATE_HOME', mac ? path.join(support, 'state') : path.join(home, '.local', 'state', 'dotdial'), 'stateHome');
+  const dataDir = choose(overrides.dataHome, 'XDG_DATA_HOME', mac ? path.join(support, 'data') : path.join(home, '.local', 'share', 'dotdial'), 'dataHome');
+  const cacheDir = choose(overrides.cacheHome, 'XDG_CACHE_HOME', mac ? path.join(home, 'Library', 'Caches', 'DotDial') : path.join(home, '.cache', 'dotdial'), 'cacheHome');
+  const uid = overrides.uid ?? (typeof process.getuid === 'function' ? process.getuid() : null);
+  const temp = absoluteDir(overrides.tmpdir || os.tmpdir(), 'tmpdir');
+  const runtimeFallback = mac ? path.join(temp, `dotdial-${uid ?? 'user'}`)
+    : uid !== null ? path.join('/run/user', String(uid), 'dotdial') : path.join(temp, 'dotdial-runtime', 'dotdial');
+  const runtimeDir = choose(overrides.runtimeHome, 'XDG_RUNTIME_DIR', runtimeFallback, 'runtimeHome');
   return {
     configDir,
     configFile: path.join(configDir, 'config.json'),
@@ -354,6 +358,17 @@ function initializeLockFile(lockPath) {
   }
 }
 
+function configLockCommand({ platform = process.platform, projectRoot = path.resolve(__dirname, '..'), timeoutMs = 2000 } = {}) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 30000) throw new TypeError('Config lock timeout must be an integer from 0 to 30000 ms');
+  if (platform !== 'darwin') return { command: 'flock', args: ['-x', '-w', String(timeoutMs / 1000), '3'], timeoutExitCode: 1 };
+  const root = path.resolve(projectRoot), resources = path.dirname(root);
+  const packaged = path.basename(root) === 'app' && path.basename(resources) === 'Resources' && path.basename(path.dirname(resources)) === 'Contents';
+  return {
+    command: packaged ? path.join(resources, 'dotdial-lock') : path.join(root, 'build', 'native', 'dotdial-lock'),
+    args: ['--timeout-ms', String(timeoutMs)], timeoutExitCode: 75,
+  };
+}
+
 function acquireLock(lockPath, timeoutMs = 2000) {
   initializeLockFile(lockPath);
   let fd;
@@ -365,16 +380,21 @@ function acquireLock(lockPath, timeoutMs = 2000) {
   }
   try {
     if (!fs.fstatSync(fd).isFile()) throw new ConfigError('DOTDIAL_CONFIG_LOCK_INVALID', 'Config lock must be a regular file');
-    const locked = spawnSync('flock', ['-x', '-w', String(timeoutMs / 1000), '3'], {
+    const lockCommand = configLockCommand({ timeoutMs });
+    // Both helpers lock the inherited open file description. Their exit must
+    // leave the lock held by this parent fd until saveConfig closes it.
+    const locked = spawnSync(lockCommand.command, lockCommand.args, {
       stdio: ['ignore', 'ignore', 'ignore', fd],
       timeout: timeoutMs + 1000,
       windowsHide: true,
     });
-    if (locked.error?.code === 'ENOENT') {
-      throw new ConfigError('DOTDIAL_CONFIG_LOCK_UNAVAILABLE', 'The system flock utility is required to save settings');
-    }
     if (locked.error || locked.status !== 0) {
-      throw new ConfigError('DOTDIAL_CONFIG_BUSY', 'Another configuration update is in progress');
+      if (!locked.error && locked.status === lockCommand.timeoutExitCode) {
+        throw new ConfigError('DOTDIAL_CONFIG_BUSY', 'Another configuration update is in progress');
+      }
+      throw new ConfigError('DOTDIAL_CONFIG_LOCK_UNAVAILABLE', process.platform === 'darwin'
+        ? 'The native macOS config lock helper is unavailable. Reinstall DotDial or run npm install from source.'
+        : 'The system flock utility is required to save settings');
     }
 
     let previous;
@@ -470,5 +490,6 @@ module.exports = {
   loadConfig,
   loadConfigSnapshot,
   saveConfig,
+  configLockCommand,
   getPaths,
 };

@@ -11,7 +11,7 @@ Factual copy and reusable media for the Linux beta and first public macOS previe
 - No API key or installed ChatGPT/Codex desktop app is required by DotDial.
 - macOS downloads are **ad-hoc signed, without Apple Developer ID signing or notarization**. They are early previews; startup at login may remain unavailable.
 - macOS 13 is the binary deployment target. Native automated checks passed on macOS 15 for both architectures, using synthetic audio. Ventura runtime behavior, physical audio hardware, real permission prompts, sleep/unplug recovery, Login Items and real ChatGPT account calls still need hands-on acceptance. Linux live-call evidence must not be presented as macOS validation.
-- The published Mac binaries come from `54889c5b04fe3dc32b79084d56bbec6e187a53de`. The Mac port is separate from the Linux implementation on `main`; later PR changes are not part of Preview 1.
+- The source tree supports both Linux and macOS. The published Mac binaries come from `54889c5b04fe3dc32b79084d56bbec6e187a53de`; later source changes are not part of Preview 1. Use the [current macOS guide](MACOS.md) for development and the pinned guide below for the released preview.
 
 ## Release links
 
@@ -64,7 +64,7 @@ Project: https://github.com/aaamosh/DotDial
 
 Mac preview: https://github.com/aaamosh/DotDial/releases/tag/v0.1.0-beta.3-macos-preview.1
 
-These are maintainer drafts prepared with AI assistance. Preserve affiliation and any destination-required AI disclosure when adapting them. For Showcase, use the updated platform card and distinguish the shipped Mac preview from the Linux code on `main`.
+These are maintainer drafts prepared with AI assistance. Preserve affiliation and any destination-required AI disclosure when adapting them. For Showcase, use the updated platform card and distinguish the fixed Preview 1 downloads from subsequent source changes.
 
 ## OpenAI community
 

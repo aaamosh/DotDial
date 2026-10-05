@@ -8,7 +8,7 @@ if (process.argv.includes('--media-worker')) {
 }
 
 async function boot() {
-  const { app, BrowserWindow, session, globalShortcut, dialog } = require('electron');
+  const { app, BrowserWindow, session, ipcMain, Menu, globalShortcut, dialog, systemPreferences } = require('electron');
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -21,6 +21,7 @@ async function boot() {
   const { createWebRecovery } = require('./web_recovery.cjs');
   const { selectLiveConfig } = require('./live_config.cjs');
   const { installQuitBarrier } = require('./quit_guard.cjs');
+  const { createMicrophonePermission, createLoginItemController, isCustomMacLaunch, installMacApplicationMenu, secureRuntimeDirectory } = require('./macos.cjs');
   const option = name => process.argv.find(v => v.startsWith(`--${name}=`))?.slice(name.length + 3);
   const demo = process.argv.includes('--demo');
   const demoRoot = demo ? fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-preview-')) : null;
@@ -32,28 +33,34 @@ async function boot() {
     paths.runtimeDir = path.join(demoRoot, 'run'); paths.recordingsDir = path.join(paths.stateDir, 'missed-audio');
     paths.socketPath = path.join(paths.runtimeDir, 'dotdial.sock');
   }
-  for (const dir of [paths.configDir, paths.stateDir, paths.dataDir, paths.runtimeDir]) {
-    const existingCustomParent = !!option('config') && dir === paths.configDir && fs.existsSync(dir);
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    if (!existingCustomParent) fs.chmodSync(dir, 0o700);
-  }
   let snapshot;
-  try { snapshot = loadConfigSnapshot(paths.configFile); }
+  try {
+    // An explicit --config can live in an existing user-owned directory.
+    // Creating it is safe; changing that directory's permissions is not ours.
+    fs.mkdirSync(paths.configDir, { recursive: true, mode: 0o700 });
+    for (const dir of [paths.stateDir, paths.dataDir]) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      fs.chmodSync(dir, 0o700);
+    }
+    secureRuntimeDirectory(paths.runtimeDir);
+    snapshot = loadConfigSnapshot(paths.configFile);
+    if (snapshot.hash === null) snapshot = saveConfig(paths.configFile, snapshot.config, { expectedHash: null });
+  }
   catch (error) { dialog.showErrorBox('DotDial configuration', error.message); app.exit(2); return; }
-  if (snapshot.hash === null) snapshot = saveConfig(paths.configFile, snapshot.config, { expectedHash: null });
   let config = snapshot.config;
   app.setName('DotDial');
   if (process.platform === 'linux') app.setDesktopName('dotdial.desktop');
   app.setPath('userData', demoRoot ? path.join(paths.dataDir, 'profile') : option('profile') || path.join(paths.dataDir, 'profile'));
   app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
   if (!app.requestSingleInstanceLock()) { app.exit(0); return; }
+  if (process.platform === 'darwin') app.setActivationPolicy('regular');
 
   let desktop, controller, mailbox, missedPlayer, audioControls, sounds, customSounds, wakeManager, webSession, server;
   let soundPreview = false, previewGeneration = 0;
   let loginWindow, pageReady, pageFailed = false, identityEpoch = 0, shuttingDown = false;
   let configPending = false, configError = null, wakeEpoch = 0, hotkeyAvailable = true, applyingConfig = false;
-  let configReloadRequested = false;
-  let demoCallTimer, currentThreadId = null, callPreparing = false;
+  let configReloadRequested = false, settingsSaveEpoch = 0;
+  let demoCallTimer, currentThreadId = null, callPreparing = false, microphoneIntent = 0;
   let webVerifying = false, webActionRequired = false;
   let statusPersistenceError = null;
   let verifiedIdentity = null;
@@ -62,6 +69,13 @@ async function boot() {
   const safeCode = error => /^[a-z0-9_]{1,100}$/i.test(error?.code || '') ? error.code : 'operation_failed';
   const failure = code => Object.assign(new Error(code), { code });
   const loadModule = name => import(pathToFileURL(path.join(__dirname, name)).href);
+  const microphonePermission = createMicrophonePermission({ systemPreferences, onChange: () => {
+    desktop?.update(state());
+    if (!shuttingDown && microphonePermission.status() === 'granted') wakeManager?.start();
+  } });
+  const loginItem = createLoginItemController({ app });
+  const nativePaths = process.platform === 'darwin' ? getPaths({ env: {} }) : null;
+  const customMacLaunch = value => isCustomMacLaunch({ nativePaths, paths, profile: option('profile'), signalingLauncher: value.network.signalingLauncher });
   const busy = () => callPreparing || (controller && !['ready'].includes(controller.state));
   function writeJson(file, value) {
     fs.writeFileSync(file + '.tmp', JSON.stringify(value) + '\n', { mode: 0o600 });
@@ -80,7 +94,12 @@ async function boot() {
       status_persistence_error: statusPersistenceError,
       identity_verified: !!verifiedIdentity && verifiedIdentity.epoch === identityEpoch,
       verified_email: verifiedIdentity?.epoch === identityEpoch ? verifiedIdentity.email : null,
-      hotkey_available: hotkeyAvailable };
+      hotkey_available: hotkeyAvailable,
+      ...(process.platform === 'darwin' && !demo ? {
+        microphone_permission: microphonePermission.status(),
+        ...(microphonePermission.isPending() ? { microphone_changing: true } : {}),
+        login_item_status: loginItem.snapshot().status, login_item_error: loginItem.snapshot().error,
+      } : {}) };
   }
   function publish(value = lastState) {
     if (lastState.state === 'active' && value.state !== 'active' && lastState.media) {
@@ -207,9 +226,21 @@ async function boot() {
     } catch (error) { return requireWebAction(error); }
   }
   async function saveSettings(value, expectedHash) {
+    // A later Save is a new intent even when it writes identical JSON and
+    // therefore has the same content hash as the pending permission request.
+    const ticket = ++settingsSaveEpoch;
+    value = validateConfig(value);
     const previous = loadConfigSnapshot(paths.configFile);
     if (busy() && (JSON.stringify(previous.config.dot) !== JSON.stringify(value.dot) || JSON.stringify(previous.config.network) !== JSON.stringify(value.network))) {
       throw Object.assign(failure('call_in_progress'), { message: 'Finish the current call before changing its account or network route.' });
+    }
+    if (!demo && value.general.startAtLogin && (!previous.config.general.startAtLogin || customMacLaunch(value) !== customMacLaunch(previous.config))) {
+      loginItem.validate({ enabled: true, customLaunch: customMacLaunch(value) });
+    }
+    if (!demo && process.platform === 'darwin' && value.wakeWord.enabled && !previous.config.wakeWord.enabled) {
+      const granted = await microphonePermission.requireAccess({ prompt: true, isCurrent: () => ticket === settingsSaveEpoch && !shuttingDown });
+      if (ticket !== settingsSaveEpoch) throw failure('settings_save_superseded');
+      if (!granted || shuttingDown) throw failure('operation_cancelled');
     }
     const result = saveConfig(paths.configFile, value, { expectedHash });
     await applyDiskConfig();
@@ -245,7 +276,7 @@ async function boot() {
       // Publish the saved revision even if call-sensitive settings are pending.
       // A duplicate file-watch event must not invent pending changes.
       snapshot = next;
-      wakeManager?.configure(update.config.wakeWord);
+      wakeManager?.configure(update.config.wakeWord, { inputDeviceId: update.config.audio.microphoneDeviceId });
       if (busy() || mailbox?.playing) {
         config = update.config;
         publish();
@@ -268,10 +299,10 @@ async function boot() {
       }
       if (app.isReady()) {
         globalShortcut.unregisterAll();
-        hotkeyAvailable = !config.general.hotkey || globalShortcut.register(config.general.hotkey, () => { void command(busy() ? 'STOP' : 'WAKE'); });
+        hotkeyAvailable = !config.general.hotkey || globalShortcut.register(config.general.hotkey, () => { void command(busy() ? 'STOP' : 'WAKE').catch(() => desktop?.openSettings()); });
         if (!demo) configureAutostart();
       }
-      wakeManager?.configure(config.wakeWord);
+      wakeManager?.configure(config.wakeWord, { inputDeviceId: config.audio.microphoneDeviceId });
       desktop?.update(state());
     } finally {
       applyingConfig = false;
@@ -282,6 +313,10 @@ async function boot() {
     }
   }
   function configureAutostart() {
+    if (process.platform === 'darwin') {
+      loginItem.configure({ enabled: config.general.startAtLogin, customLaunch: customMacLaunch(config) });
+      return;
+    }
     const autostart = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'autostart', 'dotdial.desktop');
     if (!config.general.startAtLogin) { if (fs.existsSync(autostart)) fs.unlinkSync(autostart); return; }
     fs.mkdirSync(path.dirname(autostart), { recursive: true, mode: 0o700 });
@@ -292,6 +327,9 @@ async function boot() {
   }
   async function getAudioDevices() {
     if (demo) return { inputs: [{ id: 'default', label: 'System microphone' }], outputs: [{ id: 'default', label: 'System speakers' }] };
+    // Invoked by the explicit Scan devices button. TCC grants label access;
+    // enumeration below still never calls getUserMedia or opens a stream.
+    if (process.platform === 'darwin' && !await microphonePermission.requireAccess({ prompt: true, isCurrent: () => !shuttingDown })) return { inputs: [], outputs: [] };
     const w = new BrowserWindow({ show: false, webPreferences: { partition: 'dotdial-devices', sandbox: true, contextIsolation: true, nodeIntegration: false } });
     const s = session.fromPartition('dotdial-devices');
     s.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
@@ -303,7 +341,19 @@ async function boot() {
       return { inputs: [{ id: 'default', label: 'System microphone' }, ...list.filter(d => d.kind === 'audioinput')], outputs: [{ id: 'default', label: 'System speakers' }, ...list.filter(d => d.kind === 'audiooutput')] };
     } finally { w.destroy(); }
   }
-  async function command(name) {
+  async function requireCommandMicrophone(prompt, isCurrent) {
+    try { return await microphonePermission.requireAccess({ prompt, isCurrent }); }
+    catch (error) {
+      if (!prompt && error.code === 'microphone_permission_required' && !shuttingDown) {
+        // The CLI's socket has a short response deadline. Show native consent,
+        // return immediately, and require a fresh command after permission.
+        desktop?.openSettings();
+        void microphonePermission.requireAccess({ prompt: true, isCurrent: () => !shuttingDown }).catch(() => {});
+      }
+      throw error;
+    }
+  }
+  async function command(name, { promptMicrophone = true } = {}) {
     if (name === 'QUIT') { app.quit(); return { status: 'quitting' }; }
     if (name === 'STATUS') return state();
     if (name === 'SETTINGS') { desktop.openSettings(); return { status: 'settings_opened' }; }
@@ -320,28 +370,49 @@ async function boot() {
       if (webActionRequired) await loadLoginPage();
       return { status: 'login_opened' };
     }
-    if (name === 'WAKE_SETUP') return wakeManager.install();
+    if (name === 'WAKE_SETUP') {
+      if (process.platform === 'darwin' && !await requireCommandMicrophone(promptMicrophone, () => !shuttingDown)) return { status: 'cancelled' };
+      return wakeManager.install();
+    }
     if (name === 'WAKE') {
       if (!config.dot.url) { desktop.openSettings(); return { status: 'dot_not_configured' }; }
-      if (controller.state === 'active' && !callPreparing) return audioControls.activate(() => sounds.play('activated'));
+      if (controller.state === 'active' && !callPreparing) {
+        if (process.platform !== 'darwin' || controller.capture) return audioControls.activate(() => sounds.play('activated'));
+        const peer = controller.peer, intent = ++microphoneIntent;
+        const current = () => intent === microphoneIntent && controller.peer === peer && controller.state === 'active' && !controller.cancelled && !shuttingDown;
+        if (!controller.capture && !await requireCommandMicrophone(promptMicrophone, current)) return { status: 'cancelled' };
+        if (!current()) return { status: 'cancelled' };
+        return audioControls.activate(() => sounds.play('activated'));
+      }
       if (callPreparing || ['starting', 'stopping'].includes(controller.state)) return { status: state().state };
       stopSoundPreview();
-      const ticket = ++wakeEpoch; callPreparing = true; publish();
+      const ticket = ++wakeEpoch, intent = ++microphoneIntent; callPreparing = true; publish();
       try {
+        const current = () => ticket === wakeEpoch && (process.platform !== 'darwin' || intent === microphoneIntent) && !shuttingDown;
+        if (process.platform === 'darwin' && !config.audio.microphoneInitiallyMuted && !await requireCommandMicrophone(promptMicrophone, current)) return { status: 'cancelled' };
+        if (!current()) return { status: 'cancelled' };
         if (mailbox.playing) await mailbox.stop();
-        if (ticket !== wakeEpoch || shuttingDown) return { status: 'cancelled' };
+        if (!current()) return { status: 'cancelled' };
         mailbox.setMuted(config.audio.speakersInitiallyMuted);
         return controller.wake({ microphone: !config.audio.microphoneInitiallyMuted, maxSeconds: config.call.maxMinutes * 60 });
       } finally { if (ticket === wakeEpoch) callPreparing = false; publish(); }
     }
     if (name === 'STOP') {
-      wakeEpoch++; callPreparing = false;
+      wakeEpoch++; microphoneIntent++; callPreparing = false;
       void audioControls.stop().catch(() => mailbox.setError('playback_failed'));
       return { status: 'accepted_stop' };
     }
-    if (name === 'MUTE' || name === 'UNMUTE') return audioControls.microphone(name === 'UNMUTE');
-    if (name === 'SPEAKERS_MUTE' || name === 'SPEAKERS_UNMUTE') return audioControls.speakers(name === 'SPEAKERS_MUTE');
-    if (name === 'MISSED_PLAY') { stopSoundPreview(); return audioControls.play(); }
+    if (name === 'MUTE') { microphoneIntent++; return audioControls.microphone(false); }
+    if (name === 'UNMUTE') {
+      if (process.platform !== 'darwin' || controller.state !== 'active' || controller.capture || mailbox.playing) return audioControls.microphone(true);
+      const peer = controller.peer, intent = ++microphoneIntent;
+      const current = () => intent === microphoneIntent && controller.peer === peer && controller.state === 'active' && !controller.cancelled && !shuttingDown;
+      if (!await requireCommandMicrophone(promptMicrophone, current)) return { status: 'cancelled' };
+      if (!current()) return { status: 'cancelled' };
+      return audioControls.microphone(true);
+    }
+    if (name === 'SPEAKERS_MUTE' || name === 'SPEAKERS_UNMUTE') { microphoneIntent++; return audioControls.speakers(name === 'SPEAKERS_MUTE'); }
+    if (name === 'MISSED_PLAY') { microphoneIntent++; stopSoundPreview(); return audioControls.play(); }
     if (name === 'MISSED_STOP') { await mailbox.stop(); return { status: 'playback_stopped' }; }
     if (name === 'MISSED_CLEAR') { await mailbox.clear(); return { status: 'missed_cleared' }; }
     if (name === 'RECOVER') return controller.recover();
@@ -355,6 +426,10 @@ async function boot() {
     customSounds = new CustomSoundCache({ BrowserWindow, session, runtimeDir: paths.runtimeDir });
     sounds = new CallSounds({ ...config.audio, resolveCustomSound: file => customSounds.prepare(file) });
     desktop = createDesktop({ getSnapshot: state, getConfig: () => loadConfigSnapshot(paths.configFile), saveConfig: saveSettings, command, paths, getAudioDevices, previewSound, stopSoundPreview });
+    installMacApplicationMenu({ app, Menu, openSettings: () => desktop?.openSettings(), isQuitting: () => shuttingDown, onActivate: () => {
+      loginItem.refresh(); desktop?.update(state());
+      if (!demo && microphonePermission.status() === 'granted') wakeManager?.start();
+    } });
     if (!demo) {
       webSession = session.fromPartition('persist:dotdial');
       webSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
@@ -384,7 +459,11 @@ async function boot() {
       });
       audioControls = new CallAudioControls({ mailbox, controller });
       const { WakeManager } = require('./wake-manager.cjs');
-      wakeManager = new WakeManager({ paths, onWake: () => { void command('WAKE').catch(() => {}); }, onChange: () => desktop?.update(state()) });
+      const { createWakeCaptureFactory } = require('./wake_capture.cjs');
+      wakeManager = new WakeManager({ paths,
+        captureFactory: process.platform === 'darwin' ? createWakeCaptureFactory({ BrowserWindow, session, ipcMain, getMicrophoneDeviceId: () => config.audio.microphoneDeviceId }) : undefined,
+        requestMicrophoneAccess: () => microphonePermission.requireAccess(),
+        onWake: () => { void command('WAKE', { promptMicrophone: false }).catch(() => {}); }, onChange: () => desktop?.update(state()) });
       await controller.recover();
       if (config.dot.url) void openLogin(false).catch(() => {});
     }
@@ -394,7 +473,7 @@ async function boot() {
       if (live) throw failure('controller_socket_in_use');
       fs.unlinkSync(paths.socketPath);
     }
-    server = net.createServer(client => attachClient(client, cmd => command(cmd).catch(e => ({ status: 'error', code: safeCode(e) }))));
+    server = net.createServer(client => attachClient(client, cmd => command(cmd, { promptMicrophone: false }).catch(e => ({ status: 'error', code: safeCode(e) }))));
     server.listen(paths.socketPath, () => fs.chmodSync(paths.socketPath, 0o600));
     fs.watchFile(paths.configFile, { interval: 800 }, () => { void applyDiskConfig().catch(e => { configError = safeCode(e); publish(); }); });
     publish();
@@ -409,7 +488,7 @@ async function boot() {
   installQuitBarrier(app, () => {
     shuttingDown = true;
     void (async () => {
-      clearTimeout(demoCallTimer); globalShortcut.unregisterAll(); fs.unwatchFile(paths.configFile); wakeEpoch++;
+      clearTimeout(demoCallTimer); globalShortcut.unregisterAll(); fs.unwatchFile(paths.configFile); wakeEpoch++; microphoneIntent++;
       await wakeManager?.close();
       const stopped = controller?.stop(); await mailbox?.stop(); await stopped;
       await mailbox?.saveTail; await missedPlayer?.close(); sounds?.silence();
@@ -422,4 +501,7 @@ async function boot() {
   });
   process.once('SIGTERM', () => app.quit());
   process.once('SIGINT', () => app.quit());
+  if (demo && process.argv.includes('--smoke-test')) void require('../scripts/smoke-packaged.cjs').run().catch(error => {
+    console.error('PACKAGED_SMOKE_FAILED', error.stack || error.message); app.exit(1);
+  });
 }
