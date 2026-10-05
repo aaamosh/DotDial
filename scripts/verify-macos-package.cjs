@@ -8,8 +8,11 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { sha256, verifyBundle, BUNDLE_ID, MICROPHONE_DESCRIPTION } = require('./package-macos.cjs');
 const { runPosixSmoke } = require('./posix-smoke-supervisor.cjs');
+const { verifyDeploymentTargets } = require('./macos-deployment-targets.cjs');
+const { verifySignatures } = require('./macos-signatures.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+const FLITE_COMMIT = '6c9f20dc915b17f5619340069889db0aa007fcdc';
 
 function run(file, args, options = {}) {
   const result = spawnSync(file, args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 4 * 1024 * 1024, ...options });
@@ -23,6 +26,51 @@ function exactlyOne(directory, suffix) {
   const matches = fs.readdirSync(directory).filter(name => name.endsWith(suffix));
   if (matches.length !== 1) throw Error(`Expected one ${suffix} in ${directory}.`);
   return path.join(directory, matches[0]);
+}
+
+async function verifyArtifactChecksums(directory, artifacts) {
+  const expected = artifacts.map(file => path.basename(file)).sort();
+  assert.equal(new Set(expected).size, expected.length, 'expected artifacts have unique names');
+  assert.ok(expected.length > 0, 'artifact checksums require an explicit expected set');
+  const rows = fs.readFileSync(path.join(directory, 'SHA256SUMS'), 'utf8').trim().split('\n');
+  const entries = rows.map(row => {
+    const match = /^([a-f0-9]{64})  ([^/\\]+)$/.exec(row);
+    assert.ok(match, 'checksum entries are bounded artifact basenames');
+    return { name: match[2], sha256: match[1] };
+  });
+  // A three-line file can otherwise contain the manifest three times and
+  // leave both downloadable installers unchecked.
+  assert.deepEqual(entries.map(entry => entry.name).sort(), expected,
+    'SHA256SUMS must contain each expected artifact exactly once');
+  for (const entry of entries) {
+    assert.equal(await sha256(path.join(directory, entry.name)), entry.sha256, `${entry.name}: SHA-256 mismatch`);
+  }
+  return entries;
+}
+
+async function verifySpeechFixtures(directory, architecture) {
+  const provenance = JSON.parse(fs.readFileSync(path.join(directory, 'provenance.json'), 'utf8'));
+  assert.equal(provenance.prepareWakeSpeech, 'passed', 'speech fixture preparation passed');
+  assert.equal(provenance.success, true);
+  assert.equal(provenance.sourceRepository, 'https://github.com/festvox/flite');
+  assert.equal(provenance.sourceCommit, FLITE_COMMIT);
+  assert.equal(provenance.sourceCleanBeforeBuild, true);
+  assert.equal(provenance.generator, 'Flite');
+  assert.equal(provenance.voice, 'slt');
+  assert.equal(provenance.hostPlatform, 'darwin');
+  assert.ok(['arm64', 'x64'].includes(architecture), 'speech fixtures require a native Mac architecture');
+  assert.equal(provenance.hostMachine, architecture === 'x64' ? 'x86_64' : 'arm64');
+  for (const [name, text] of [['positive', 'Hey Dot.'], ['negative', 'The weather is calm today.']]) {
+    const fixture = provenance.fixtures?.[name];
+    assert.equal(fixture?.text, text, `${name}: exact synthetic speech text`);
+    assert.equal(fixture.voice, 'slt');
+    assert.equal(fixture.sampleRate, 16000);
+    assert.equal(fixture.channels, 1);
+    assert.equal(fixture.sampleFormat, 'pcm16le');
+    assert.equal(await sha256(path.join(directory, `${name}.wav`)), fixture.sha256,
+      `${name}: rendered speech agrees with its provenance`);
+  }
+  return provenance;
 }
 
 function verifyHelpers(bundle) {
@@ -108,19 +156,13 @@ async function main() {
   assert.equal(manifest.notarized, false);
   if (process.env.GITHUB_SHA) assert.equal(manifest.sourceCommit, process.env.GITHUB_SHA);
   if (process.env.CI) assert.equal(manifest.sourceDirty, false, 'CI must package the committed tree');
-  const sums = fs.readFileSync(path.join(directory, 'SHA256SUMS'), 'utf8').trim().split('\n');
-  assert.equal(sums.length, 3);
-  for (const row of sums) {
-    const match = /^([a-f0-9]{64})  ([^/\\]+)$/.exec(row);
-    assert.ok(match, 'checksum entries are bounded artifact basenames');
-    assert.equal(await sha256(path.join(directory, match[2])), match[1]);
-  }
+  const checksums = await verifyArtifactChecksums(directory, [zip, dmg, sidecar]);
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-package-check-'));
   const reportDirectory = path.join(ROOT, 'build', 'macos-qa', process.arch);
   fs.mkdirSync(reportDirectory, { recursive: true });
   let mounted = false;
   const mount = path.join(temporary, 'disk');
-  const evidence = { manifest, checksums: true, macOSPackageVerified: false };
+  const evidence = { manifest, checksums: true, checksumEntries: checksums, macOSPackageVerified: false };
   try {
     const unpacked = path.join(temporary, 'unpacked');
     run('/usr/bin/ditto', ['-x', '-k', zip, unpacked]);
@@ -147,9 +189,18 @@ async function main() {
     const graphicsArgs = process.arch === 'x64' ? ['--disable-gpu'] : [];
     const packagedSource = path.join(bundle, 'Contents', 'Resources', 'app');
     const wakeData = path.join(temporary, 'wake');
+    const speechFixtures = path.resolve(process.env.DOTDIAL_WAKE_SPEECH_FIXTURES || path.join(ROOT, 'build', 'qa-wake-speech'));
     // Collect every required result. The pipeline uses the decoder stage's
     // managed environment; a failed prerequisite cannot turn that gate green.
     await runRequiredStages([
+      ['deployment_targets', async () => {
+        evidence.deploymentTargets = verifyDeploymentTargets(bundle, {
+          architecture: manifest.architecture, minimumMacOS: manifest.minimumMacOS,
+        });
+      }],
+      ['signed_entitlements', async () => {
+        evidence.signatures = verifySignatures(bundle);
+      }],
       ['native_config_lock', async () => {
         evidence.nativeConfigLock = verifyLockHelper(lockHelper, temporary, env);
       }],
@@ -185,6 +236,16 @@ async function main() {
         const python = process.env.DOTDIAL_SMOKE_PYTHON || run('python3', ['-c', 'import sys; print(sys.executable)']).stdout.trim();
         assert.ok(path.isAbsolute(python), 'wake validation requires a native Python 3.10-3.13 executable');
         run(python, [path.join(packagedSource, 'scripts', 'setup-wake.py'), '--data-dir', wakeData, '--stdin-audio'], { timeout: 300_000 });
+        // Reproduce a partial installation only inside this verifier's newly
+        // created data directory. The packaged installer must repair it from
+        // the checksum-verified archive before real recognition can pass.
+        const bpe = path.join(wakeData, 'models', 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01', 'bpe.model');
+        evidence.wakeModelRepair = { removedRequiredFile: 'bpe.model', originalSha256: await sha256(bpe), restored: false };
+        fs.unlinkSync(bpe);
+        run(python, [path.join(packagedSource, 'scripts', 'setup-wake.py'), '--data-dir', wakeData, '--stdin-audio'], { timeout: 300_000 });
+        evidence.wakeModelRepair.restoredSha256 = await sha256(bpe);
+        assert.equal(evidence.wakeModelRepair.restoredSha256, evidence.wakeModelRepair.originalSha256);
+        evidence.wakeModelRepair.restored = true;
         const wakeReport = path.join(reportDirectory, 'wake-check.json');
         try {
           run(python, [path.join(__dirname, 'smoke-macos-wake.py'), '--data-dir', wakeData, '--app-source', packagedSource, '--output', wakeReport], { timeout: 120_000 });
@@ -219,6 +280,41 @@ async function main() {
         assert.equal(evidence.wakePipeline.electron, manifest.electronVersion);
         assert.equal(evidence.wakePipeline.sourceRoot, packagedSource);
       }],
+      ['native_wake_speech', async () => {
+        // Separate from the capture/IPC fixture: the actual unmodified listener
+        // must recognize fixed open-source speech and reject both controls.
+        evidence.wakeSpeechPreparation = await verifySpeechFixtures(speechFixtures, process.arch);
+        const speechReport = path.join(reportDirectory, 'wake-speech.json');
+        fs.rmSync(speechReport, { force: true });
+        let emittedReport;
+        try {
+          const result = await runPosixSmoke(path.join(wakeData, 'wake-venv', 'bin', 'python'),
+            [path.join(__dirname, 'smoke-macos-wake-speech.py'), '--data-dir', wakeData,
+              '--app-source', packagedSource, '--positive-wav', path.join(speechFixtures, 'positive.wav'),
+              '--negative-wav', path.join(speechFixtures, 'negative.wav'), '--output', speechReport],
+            { env: guiEnv, timeout: 180_000 });
+          evidence.wakeSpeechSupervision = result.supervision;
+          emittedReport = parseJsonLine(result.stdout, 'wakeSpeechSmoke');
+        } catch (error) {
+          if (error.supervision) evidence.wakeSpeechSupervision = error.supervision;
+          throw error;
+        } finally {
+          if (fs.existsSync(speechReport)) evidence.wakeSpeech = JSON.parse(fs.readFileSync(speechReport, 'utf8'));
+        }
+        const speech = evidence.wakeSpeech;
+        assert.deepEqual(speech, emittedReport, 'the new file and single stdout speech report agree');
+        assert.equal(speech?.wakeSpeechSmoke, 'passed');
+        assert.equal(speech.success, true);
+        assert.equal(speech.hostPlatform, 'darwin');
+        assert.equal(speech.hostMachine, process.arch === 'x64' ? 'x86_64' : 'arm64');
+        assert.equal(speech.appSource, fs.realpathSync(packagedSource));
+        assert.equal(speech.fixtures.positive.wavSha256, evidence.wakeSpeechPreparation.fixtures.positive.sha256);
+        assert.equal(speech.fixtures.unrelated.wavSha256, evidence.wakeSpeechPreparation.fixtures.negative.sha256);
+        assert.deepEqual(speech.cases.map(item => [item.name, item.result, item.expectWake]), [
+          ['exact_phrase', 'passed', true], ['unrelated_speech', 'passed', false],
+          ['different_configured_phrase', 'passed', false],
+        ]);
+      }],
       ['disk_image', async () => {
         fs.mkdirSync(mount);
         run('/usr/bin/hdiutil', ['verify', dmg]);
@@ -246,4 +342,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch(error => { console.error('MACOS_PACKAGE_CHECK_FAILED', error.stack || error.message); process.exitCode = 1; });
-module.exports = { main, runRequiredStages, verifyLockHelper, parseJsonLine };
+module.exports = { main, runRequiredStages, verifyLockHelper, parseJsonLine, verifyArtifactChecksums, verifySpeechFixtures };

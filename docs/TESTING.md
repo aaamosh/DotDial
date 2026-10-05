@@ -12,7 +12,8 @@ Use Node 22.12 or newer with the committed lockfile:
 npm ci
 npm test
 npm run check:public
-python3 -m py_compile scripts/setup-wake.py src/wake/listener.py
+python3 -m py_compile scripts/setup-wake.py src/wake/listener.py \
+  scripts/prepare-wake-speech.py scripts/smoke-macos-wake-speech.py
 ```
 
 These checks use local fixtures. Do not add account credentials, live calls or
@@ -82,6 +83,11 @@ Add `--wake-data-dir /path/to/qa-wake` to the Linux runner. Subsequent pipeline
 checks use the installed local model and environment; the smoke itself does not
 install dependencies or contact an account.
 
+Rerunning setup checks that the required model files exist and are nonempty. It
+repairs an incomplete model installation from an archive with the pinned SHA-256.
+This completeness check does not detect arbitrary byte corruption in an existing,
+nonempty model file.
+
 Linux uses a reproducible non-speech WAV containing 440 Hz bursts at 48 kHz.
 macOS uses Chromium's built-in fake microphone, which generates 400 Hz beeps
 without reading a temporary file through the audio-service sandbox. Both keep
@@ -94,28 +100,102 @@ wake event from the non-speech input. The report identifies which fixture ran.
 Acknowledged writes establish that the pipe accepted audio. They do not prove
 keyword recognition or measure recognition accuracy. The native decoder check
 separately loads the real model, consumes synthetic PCM and checks a clean EOF.
-A positive spoken wake phrase and microphone permission need a manual test.
+The separate native speech check below tests recognition with generated speech;
+a phrase spoken through a physical microphone and microphone permission still
+need a manual test.
+
+## Offline speech recognition fixtures
+
+`scripts/prepare-wake-speech.py` builds [Flite](https://github.com/festvox/flite)
+at commit `6c9f20dc915b17f5619340069889db0aa007fcdc` in a fresh, disposable
+checkout. It uses the bundled `slt` voice to generate mono 16 kHz PCM16 WAV files
+for **Hey Dot.** and **The weather is calm today.** The helper requires absolute
+paths for `--flite-source` and `--output-dir`; the output directory must be new
+and outside the Flite checkout. It rejects a different commit or a dirty checkout,
+including ignored build outputs.
+
+The generator does not install Flite system-wide, download extra voices, capture
+a microphone or play audio. Its private build disables audio output, shared
+libraries and network sockets. Cloning Flite is a separate preparation step that
+needs network access; fixture generation itself is local. Flite is test tooling,
+not text-to-speech functionality in DotDial. See its pinned
+[license and provenance notice](../THIRD_PARTY_NOTICES.md).
+
+`native_wake_speech` runs the extracted package's unmodified listener with the
+native managed Python environment and pinned local model. At sensitivity **6**,
+it requires these three results:
+
+| Input recording | Configured wake phrase | Required result |
+| --- | --- | --- |
+| `Hey Dot.` | `Hey Dot` | At least one wake event. |
+| `The weather is calm today.` | `Hey Dot` | No wake event. |
+| The same `Hey Dot.` recording | `Purple Moon` | No wake event. |
+
+Each case must report readiness and exit cleanly after EOF; a listener error fails
+the check. Preserve `provenance.json`, generated WAV files and preparation logs
+with the recognition report. Provenance records the source revision, license and
+binary hashes, voice inventory, fixture text and WAV hashes.
+
+These are recognition regression checks for one synthetic voice and fixed
+phrases. They do not measure recognition accuracy across speakers, accents,
+background noise or sensitivity settings. The speech test supplies PCM directly
+to Python; the separate pipeline test exercises Electron capture and IPC.
 
 ## Native macOS acceptance
 
-On a real Mac of the target architecture, build and verify the package:
+On a real Mac of the target architecture, use Python 3.10–3.13 and the build
+prerequisites in [the macOS guide](MACOS.md#build-and-verify-from-source). From the
+repository root, build the package, prepare speech fixtures, then run verification:
 
 ```sh
 npm run package:macos
+
+flite_source="$(mktemp -d "${TMPDIR:-/tmp}/dotdial-flite.XXXXXX")/source"
+git clone --no-checkout https://github.com/festvox/flite.git "$flite_source"
+git -C "$flite_source" checkout --detach 6c9f20dc915b17f5619340069889db0aa007fcdc
+python3 scripts/prepare-wake-speech.py \
+  --flite-source "$flite_source" \
+  --output-dir "$PWD/build/qa-wake-speech"
+
 node scripts/verify-macos-package.cjs
 ```
 
-The verifier requires all stages to pass: native configuration lock, bundled CLI
-without system Node, packaged GUI/media capture, packaged media worker, native
-wake decoder, native wake pipeline, and DMG verification. The pipeline loads the
-extracted package's capture/manager/listener code into a development Electron of
-the same pinned version and uses native Python dependencies. An independently
-bounded process supervisor cleans up even if its Electron host crashes while
-the Python reader is stopped. Forced cleanup fails the stage.
+The example uses the default fixture directory, `build/qa-wake-speech`, which must
+not already exist when preparation starts. For another run, use a fresh Flite
+checkout and a new absolute output path, then set `DOTDIAL_WAKE_SPEECH_FIXTURES` to
+that path when running the verifier. Fixture preparation must finish successfully
+**before** `verify-macos-package.cjs`; missing fixtures cannot be treated as a
+skipped passing check. Set `DOTDIAL_SMOKE_PYTHON` to an absolute supported Python
+path if `python3` is not the interpreter you intend to use. Verification installs
+the pinned wake dependencies and model in its temporary environment.
+
+The verifier requires every stage to pass:
+
+| Stage | What it checks |
+| --- | --- |
+| `deployment_targets` | The native target architecture slice in every Mach-O file in the bundle declares a macOS minimum of 13.0 or earlier. This inspects binary metadata; it does not run the app on Ventura or establish compatibility of unused foreign slices. |
+| `signed_entitlements` | The signed identities and entitlements of the main app, generic Electron helper and native configuration-lock helper match their expected roles, including audio-input rights where required. This examines signed code, not only source plist files. |
+| `native_config_lock` | The bundled native helper provides the required configuration-lock behavior. |
+| `bundled_cli` | The installed CLI reads, saves and diagnoses configuration without system Node. |
+| `gui_media_capture` | The packaged GUI, preload, settings, panel and synthetic media capture work together. |
+| `packaged_worker` | The packaged media worker handles a local synthetic WebRTC session. |
+| `native_wake_decoder` | The packaged installer repairs a deliberately removed required file in isolated test data; its restored hash matches the original. Native Python dependencies then load the real model and the listener consumes synthetic PCM with a clean EOF. |
+| `native_wake_pipeline` | Electron capture, IPC and bounded PCM delivery reach the native Python listener, including pause/resume, stopped-reader cleanup and restart. |
+| `native_wake_speech` | Generated speech produces the required positive and two negative recognition results described above. |
+| `disk_image` | The DMG is readable and contains the verified application and Applications shortcut. |
+
+The pipeline loads the extracted package's capture/manager/listener code into a
+development Electron of the same pinned version and uses native Python
+dependencies. An independently bounded process supervisor cleans up even if its
+Electron host crashes while the Python reader is stopped. Forced cleanup fails
+the stage. Passing signature and entitlement checks does not grant microphone
+permission or turn an ad-hoc signature into Developer ID signing or notarization.
 
 The macOS workflow runs natively on Apple Silicon and Intel. It preserves
 `build/macos-qa/<architecture>/` even when a check fails. Its progress report
 records every required stage, so one successful check cannot hide a failed one.
+This guide defines the acceptance gates; it does not certify that a particular
+revision has passed them. Consult that revision's complete native report.
 See [the macOS guide](MACOS.md#build-and-verify-from-source) for prerequisites and
 the distinction between ad-hoc signing, Developer ID signing and notarization.
 
@@ -123,5 +203,7 @@ Linux checks exercise shared behavior and can exercise the macOS PCM code path;
 they cannot verify CoreAudio, TCC, native Login Items, macOS signatures or a DMG.
 Native synthetic checks still do not replace an actual session covering first
 launch, permission denial/grant, a physical microphone and speakers, sleep/wake,
-login startup, a spoken wake phrase and a real account call. Keep private account
-data and recordings out of test artifacts.
+microphone unplug/reconnect, login startup, a spoken wake phrase and a real account
+call. Run that session on macOS 13 Ventura as well as a current supported version;
+deployment metadata alone cannot substitute for a minimum-version runtime test.
+Keep private account data and recordings out of test artifacts.

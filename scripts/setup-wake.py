@@ -6,6 +6,7 @@ import inspect
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -14,6 +15,13 @@ import urllib.request
 from pathlib import Path
 
 MODEL = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+# Keep this readiness contract in sync with src/wake-runtime.cjs.
+MODEL_FILES = (
+    "tokens.txt", "bpe.model",
+    "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+    "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+    "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+)
 URL = f"https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/{MODEL}.tar.bz2"
 SHA256 = "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a"
 
@@ -109,6 +117,71 @@ def extract_checked_model(source, destination):
     source.extractall(destination, members=members)
 
 
+def require_model_directory(directory, create=False):
+    try:
+        metadata = directory.lstat()
+    except FileNotFoundError:
+        if not create:
+            return False
+        directory.mkdir(mode=0o700)
+        metadata = directory.lstat()
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise RuntimeError(f"Unsafe wake model directory: {directory}")
+    return True
+
+
+def model_ready(directory):
+    if not require_model_directory(directory):
+        return False
+    ready = True
+    for name in MODEL_FILES:
+        file = directory / name
+        try:
+            metadata = file.lstat()
+        except FileNotFoundError:
+            ready = False
+            continue
+        # Never follow a user-supplied link or open a FIFO/device as a model.
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RuntimeError(f"Unsafe wake model file: {file}")
+        if metadata.st_size == 0 or not os.access(file, os.R_OK):
+            ready = False
+    return ready
+
+
+def publish_model(prepared, target):
+    if not model_ready(prepared):
+        raise RuntimeError("Wake archive is missing readable, nonempty required model files")
+    require_model_directory(target.parent)
+    # Another installer may have completed while this archive was prepared.
+    if model_ready(target):
+        return
+    previous = None
+    committed = False
+    try:
+        if target.exists():
+            # Keep rollback data outside the archive's TemporaryDirectory:
+            # failure to restore it must never trigger automatic deletion.
+            previous = Path(tempfile.mkdtemp(prefix=f".{MODEL}-previous-", dir=target.parent))
+            os.replace(target, previous / MODEL)
+        os.replace(prepared, target)
+        committed = True
+    except BaseException as commit_error:
+        if previous is not None and os.path.lexists(previous / MODEL):
+            try:
+                os.replace(previous / MODEL, target)
+            except BaseException:
+                raise RuntimeError(
+                    f"Wake model replacement and rollback failed; previous model preserved at {previous / MODEL}"
+                ) from commit_error
+        raise
+    finally:
+        # Even an interrupt between rename and the next Python instruction must
+        # not delete the only remaining copy of the previous model.
+        if previous is not None and (committed or not os.path.lexists(previous / MODEL)):
+            shutil.rmtree(previous)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, default=default_data_dir())
@@ -129,11 +202,14 @@ def main(argv=None):
         except RuntimeError as error:
             parser.error(str(error))
     data.mkdir(parents=True,exist_ok=True,mode=0o700)
+    models = data / "models"
+    require_model_directory(models, create=True)
+    model = models / MODEL
+    complete_model = model_ready(model)
     if not python.exists():
         subprocess.run([sys.executable,"-m","venv",str(venv)],check=True)
     subprocess.run([str(python),"-m","pip","install","--disable-pip-version-check",*requirements],check=True)
-    models = data/"models";models.mkdir(exist_ok=True,mode=0o700)
-    if not (models/MODEL/"tokens.txt").exists():
+    if not complete_model:
         with tempfile.TemporaryDirectory(prefix=".dotdial-wake-",dir=data) as temporary:
             stage = Path(temporary); archive = stage/"model.tar.bz2"
             if args.archive: shutil.copyfile(args.archive,archive)
@@ -144,7 +220,7 @@ def main(argv=None):
                 raise RuntimeError("Wake model checksum mismatch")
             with tarfile.open(archive,"r:bz2") as source:
                 extract_checked_model(source, stage)
-            os.replace(stage/MODEL,models/MODEL)
+            publish_model(stage / MODEL, model)
     print("Offline wake-word engine installed. Enable it in DotDial settings.")
 
 

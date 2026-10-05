@@ -53,6 +53,16 @@ jobs:
           npm test
           npm run check:public
           python3 -m py_compile scripts/setup-wake.py src/wake/listener.py
+      - name: Check out the pinned open-source speech generator
+        uses: actions/checkout@v4
+        with:
+          repository: festvox/flite
+          ref: 6c9f20dc915b17f5619340069889db0aa007fcdc
+          path: build/qa-flite/source
+          persist-credentials: false
+      - name: Build private speech fixtures without an audio device
+        timeout-minutes: 6
+        run: python3 scripts/prepare-wake-speech.py --flite-source "$PWD/build/qa-flite/source" --output-dir "$PWD/build/qa-wake-speech"
       - name: Build native ad-hoc signed preview ZIP and DMG
         run: node scripts/package-macos.cjs --preview
       - name: Verify extracted bundles, CLI, GUI, WebRTC, wake and DMG
@@ -70,6 +80,17 @@ jobs:
             dist/macos-${{ matrix.arch }}/SHA256SUMS
           if-no-files-found: error
           retention-days: 30
+      - name: Preserve speech fixtures, bounded logs and provenance
+        if: always()
+        run: |
+          qa_speech_dir="build/macos-qa/$DOTDIAL_TARGET_ARCH/speech-preparation"
+          if [ -d build/qa-wake-speech ]; then
+            mkdir -p "$qa_speech_dir"
+            for file in build/qa-wake-speech/*.log build/qa-wake-speech/*.json build/qa-wake-speech/*.wav; do
+              if [ -f "$file" ]; then cp "$file" "$qa_speech_dir/"; fi
+            done
+            if [ -f build/qa-flite/source/COPYING ]; then cp build/qa-flite/source/COPYING "$qa_speech_dir/Flite-COPYING"; fi
+          fi
       - name: Save small native verification report and screenshots
         if: always()
         uses: actions/upload-artifact@v4

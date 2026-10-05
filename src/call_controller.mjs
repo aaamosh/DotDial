@@ -10,6 +10,9 @@ export class CallController {
     this.capture = null;
     this.cancelled = false;
     this.microphonePending = null;
+    this.microphoneGeneration = 0;
+    this.microphoneTarget = null;
+    this.microphoneStopping = null;
     this.recoveryPending = null;
   }
 
@@ -146,11 +149,27 @@ export class CallController {
     if (this.measuring || this.state !== 'active') return;
     this.measuring = true;
     const peer = this.peer;
+    const capture = this.capture;
+    const microphoneGeneration = this.microphoneGeneration;
+    const microphonePending = this.microphonePending;
     try {
       if (peer?.getStats) {
         const media = await peer.getStats();
         if (peer !== this.peer || this.state !== 'active') return;
-        this.metrics.media = media;
+        const currentMicrophone = capture === this.capture && microphoneGeneration === this.microphoneGeneration &&
+          !microphonePending && !this.microphonePending;
+        if (currentMicrophone && capture && media.microphone_active === false) {
+          // The renderer already released an ended track. Keep the call and
+          // playback alive, and allow the next explicit unmute to reacquire.
+          this.capture = null;
+          this.metrics.microphone_error = 'microphone_ended';
+        }
+        // A stats reply can describe the old track after a newer unmute has
+        // completed. Its connection/playback data is still useful, but its
+        // microphone fields must not override the latest local intent.
+        this.metrics.media = currentMicrophone ? media : { ...media,
+          microphone_active: !!this.capture,
+          microphone_error: this.metrics.microphone_error === 'microphone_ended' ? 'microphone_ended' : null };
         this.metrics.event_count = media.event_count || 0;
         this.metrics.remote_audio_frames = media.packetsReceived || 0;
         this.metrics.remote_peak = Math.max(this.metrics.remote_peak, media.audioLevel || 0);
@@ -171,38 +190,64 @@ export class CallController {
 
   setMicrophoneEnabled(enabled) {
     if (this.state !== 'active' || this.cancelled) return { status: 'no_active_call' };
-    if (this.microphonePending) return { status: 'microphone_busy' };
-    if (!!this.capture === enabled) return { status: enabled ? 'microphone_on' : 'microphone_off' };
+    if (this.microphonePending && this.microphoneTarget === enabled) return { status: 'microphone_busy' };
+    if (!this.microphonePending && !!this.capture === enabled) return { status: enabled ? 'microphone_on' : 'microphone_off' };
     const peer = this.peer;
     if (!peer?.startMicrophone || !peer?.stopMicrophone) return { status: 'microphone_control_unavailable' };
+    // Mute revokes an unfinished acquisition before sending its asynchronous
+    // stop. A subsequent unmute waits for that stop, never for the old capture.
+    const generation = ++this.microphoneGeneration;
+    this.microphoneTarget = enabled;
+    const current = () => generation === this.microphoneGeneration && peer === this.peer &&
+      !this.cancelled && this.state === 'active';
     delete this.metrics.microphone_error;
-    this.microphonePending = (async () => {
+    let operation;
+    operation = (async () => {
       if (enabled) {
+        if (this.microphoneStopping) await this.microphoneStopping;
+        if (!current()) return;
         const capture = await peer.startMicrophone();
-        if (peer !== this.peer || this.cancelled || this.state !== 'active') {
-          capture.stop();
+        if (!current()) {
+          // Chromium capture handles stop the peer's CURRENT microphone. The
+          // earlier mute already cancelled this acquisition on the same peer;
+          // stopping its stale handle could instead mute a newer acquisition.
+          if (peer !== this.peer) capture.stop();
           return;
         }
         this.capture = capture;
         this.metrics.microphone_settings = peer.microphoneSettings;
       } else {
-        await peer.stopMicrophone();
-        if (peer !== this.peer) return;
-        this.capture = null;
+        const capture = this.capture;
+        if (!this.microphoneStopping) {
+          const stopping = Promise.resolve(peer.stopMicrophone());
+          this.microphoneStopping = stopping;
+          const clear = () => { if (this.microphoneStopping === stopping) this.microphoneStopping = null; };
+          void stopping.then(clear, clear);
+        }
+        await this.microphoneStopping;
+        if (peer === this.peer && this.capture === capture) this.capture = null;
       }
-      if (this.metrics.media) this.metrics.media.microphone_active = !!this.capture;
+      if (current() && this.metrics.media) {
+        this.metrics.media.microphone_active = !!this.capture;
+        this.metrics.media.microphone_error = null;
+      }
     })().catch(() => {
-      if (peer === this.peer && this.state === 'active') this.metrics.microphone_error = 'microphone_change_failed';
+      if (current()) this.metrics.microphone_error = 'microphone_change_failed';
     }).finally(() => {
-      this.microphonePending = null;
-      this.report();
+      if (this.microphonePending === operation) {
+        this.microphonePending = null;
+        this.microphoneTarget = null;
+        this.report();
+      }
     });
+    this.microphonePending = operation;
     this.report();
     return { status: enabled ? 'unmuting_microphone' : 'muting_microphone' };
   }
 
   stop() {
     this.cancelled = true;
+    this.microphoneGeneration++;
     void this.cue('silence');
     try { this.capture?.stop(); } catch {}
     this.capture = null;

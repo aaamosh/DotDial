@@ -6,20 +6,53 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const setup = path.join(__dirname, '..', 'scripts', 'setup-wake.py');
+const { MODEL_FILES } = require('../src/wake-runtime.cjs');
 const available = spawnSync('python3', ['--version'], { encoding: 'utf8', timeout: 5000 }).status === 0;
 const pythonTest = (name, body) => test(name, { skip: available ? false : 'optional Python 3 is not installed' }, () => {
   const prelude = `
 import contextlib
+import hashlib
 import io
+import json
+import os
 import runpy
 import subprocess
 import sys
 import tempfile
+import tarfile
 from pathlib import Path
 from unittest import mock
 m = runpy.run_path(sys.argv[1])
+model_files = json.loads(sys.argv[2])
+
+def populate_model(model, missing=(), empty=(), content=b"existing model"):
+    model.mkdir(parents=True, exist_ok=True)
+    for name in model_files:
+        if name not in missing:
+            (model / name).write_bytes(b"" if name in empty else content)
+
+def fixture_archive(root, missing=(), empty=()):
+    archive = root / "fixture-model.tar.bz2"
+    with tarfile.open(archive, "w:bz2") as target:
+        for name in model_files:
+            if name in missing:
+                continue
+            content = b"" if name in empty else ("replacement " + name).encode()
+            entry = tarfile.TarInfo(m["MODEL"] + "/" + name)
+            entry.size = len(content)
+            entry.mode = 0o644
+            target.addfile(entry, io.BytesIO(content))
+    return archive, hashlib.sha256(archive.read_bytes()).hexdigest()
+
+def local_setup(data, archive, digest):
+    with mock.patch.object(sys, "version_info", (3, 12, 0)), \\
+         mock.patch.object(m["subprocess"], "run"), \\
+         mock.patch.object(m["urllib"].request, "urlopen", side_effect=AssertionError("Unexpected download")), \\
+         mock.patch.dict(m["main"].__globals__, {"SHA256": digest}), \\
+         contextlib.redirect_stdout(io.StringIO()):
+        m["main"](["--data-dir", str(data), "--archive", str(archive)])
 `;
-  const result = spawnSync('python3', ['-B', '-c', prelude + body, setup], { encoding: 'utf8', timeout: 10000 });
+  const result = spawnSync('python3', ['-B', '-c', prelude + body, setup, JSON.stringify(MODEL_FILES)], { encoding: 'utf8', timeout: 10000 });
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
@@ -74,8 +107,7 @@ for platform in ["darwin", "linux"]:
     with tempfile.TemporaryDirectory() as root:
         data = Path(root) / "chosen data"
         model = data / "models" / m["MODEL"]
-        model.mkdir(parents=True)
-        (model / "tokens.txt").write_text("existing model")
+        populate_model(model)
         # Setup canonicalizes --data-dir, including macOS /var -> /private/var.
         resolved_data = data.resolve()
         with mock.patch.object(sys, "version_info", (3, 12, 0)), \\
@@ -137,8 +169,7 @@ with tempfile.TemporaryDirectory() as root:
     python.parent.mkdir(parents=True)
     python.write_text("not a real interpreter")
     model = data / "models" / m["MODEL"]
-    model.mkdir(parents=True)
-    (model / "tokens.txt").write_text("existing model")
+    populate_model(model)
     with mock.patch.object(sys, "version_info", (3, 12, 0)), \\
          mock.patch.object(m["subprocess"], "run", return_value=subprocess.CompletedProcess([], 0, stdout="3.13.2\\n")) as run, \\
          mock.patch.object(m["urllib"].request, "urlopen") as download, \\
@@ -170,4 +201,140 @@ with tempfile.TemporaryDirectory() as root:
         extract.assert_not_called()
         publish.assert_not_called()
     assert not (data / "models" / m["MODEL"]).exists()
+`);
+
+pythonTest('wake setup installs a full model and repairs tokens-only, missing-BPE and empty-encoder models', `
+assert tuple(m["MODEL_FILES"]) == tuple(model_files), "installer and runtime readiness contracts differ"
+for damage in ["absent", "tokens-only", "missing-bpe", "empty-encoder"]:
+    with tempfile.TemporaryDirectory() as root:
+        root = Path(root)
+        data = root / "data"
+        model = data / "models" / m["MODEL"]
+        if damage == "absent":
+            data.mkdir()
+        else:
+            populate_model(model,
+                missing=[name for name in model_files if name != "tokens.txt"] if damage == "tokens-only" else
+                        ["bpe.model"] if damage == "missing-bpe" else [],
+                empty=[model_files[2]] if damage == "empty-encoder" else [])
+        outside = data / "other-user-file"
+        outside.write_text("preserve unrelated data")
+        archive, digest = fixture_archive(root)
+        local_setup(data, archive, digest)
+        for name in model_files:
+            assert (model / name).read_bytes() == ("replacement " + name).encode(), (damage, name)
+        assert outside.read_text() == "preserve unrelated data"
+        assert sorted(path.name for path in (data / "models").iterdir()) == [m["MODEL"]]
+`);
+
+pythonTest('wake setup preserves a complete installed model instead of replacing it', `
+with tempfile.TemporaryDirectory() as root:
+    root = Path(root)
+    data = root / "data"
+    model = data / "models" / m["MODEL"]
+    populate_model(model, content=b"keep valid installed model")
+    identity = (model / "tokens.txt").stat().st_ino
+    archive, digest = fixture_archive(root)
+    local_setup(data, archive, digest)
+    assert (model / "tokens.txt").stat().st_ino == identity
+    assert all((model / name).read_bytes() == b"keep valid installed model" for name in model_files)
+`);
+
+pythonTest('wake setup validates every staged required file before touching an invalid installed model', `
+for missing, empty in [(["bpe.model"], []), ([], [model_files[2]])]:
+    with tempfile.TemporaryDirectory() as root:
+        root = Path(root)
+        data = root / "data"
+        model = data / "models" / m["MODEL"]
+        populate_model(model, missing=["bpe.model"], content=b"old partial model")
+        before = {file.name: file.read_bytes() for file in model.iterdir()}
+        archive, digest = fixture_archive(root, missing=missing, empty=empty)
+        with mock.patch.object(m["os"], "replace", wraps=os.replace) as replace:
+            try:
+                local_setup(data, archive, digest)
+                raise AssertionError("Incomplete staged model accepted")
+            except RuntimeError as error:
+                assert "required model files" in str(error), error
+            replace.assert_not_called()
+        assert {file.name: file.read_bytes() for file in model.iterdir()} == before
+        assert not list(data.glob(".dotdial-wake-*"))
+`);
+
+pythonTest('wake setup rolls back the previous model when publishing its prepared replacement fails', `
+with tempfile.TemporaryDirectory() as root:
+    root = Path(root)
+    data = root / "data"
+    model = data / "models" / m["MODEL"]
+    populate_model(model, missing=["bpe.model"], content=b"old partial model")
+    before = {file.name: file.read_bytes() for file in model.iterdir()}
+    archive, digest = fixture_archive(root)
+    original = os.replace
+    def fail_commit(source, destination):
+        if Path(destination) == model.resolve() and Path(source).parent.name.startswith(".dotdial-wake-"):
+            raise OSError("injected model commit failure")
+        return original(source, destination)
+    with mock.patch.object(m["os"], "replace", side_effect=fail_commit):
+        try:
+            local_setup(data, archive, digest)
+            raise AssertionError("Injected commit failure was ignored")
+        except OSError as error:
+            assert "injected model commit failure" in str(error), error
+    assert {file.name: file.read_bytes() for file in model.iterdir()} == before
+    assert sorted(file.name for file in model.parent.iterdir()) == [m["MODEL"]]
+`);
+
+pythonTest('wake setup preserves recoverable backup data if both replacement and rollback fail', `
+with tempfile.TemporaryDirectory() as root:
+    root = Path(root)
+    data = root / "data"
+    model = data / "models" / m["MODEL"]
+    populate_model(model, missing=["bpe.model"], content=b"preserve rollback data")
+    before = {file.name: file.read_bytes() for file in model.iterdir()}
+    archive, digest = fixture_archive(root)
+    original = os.replace
+    def fail_publish_and_restore(source, destination):
+        if Path(destination) == model.resolve():
+            raise OSError("injected replacement/rollback failure")
+        return original(source, destination)
+    with mock.patch.object(m["os"], "replace", side_effect=fail_publish_and_restore):
+        try:
+            local_setup(data, archive, digest)
+            raise AssertionError("Failed rollback was ignored")
+        except RuntimeError as error:
+            assert "previous model preserved at" in str(error), error
+    backups = list(model.parent.glob("." + m["MODEL"] + "-previous-*"))
+    assert len(backups) == 1 and not model.exists(), backups
+    preserved = backups[0] / m["MODEL"]
+    assert {file.name: file.read_bytes() for file in preserved.iterdir()} == before
+    assert not list(data.glob(".dotdial-wake-*")), "archive staging is still cleaned"
+`);
+
+pythonTest('wake setup rejects model-root and required-file symlinks without touching their targets', `
+for kind in ["models-parent", "model-root", "required-file", "special-file"]:
+    with tempfile.TemporaryDirectory() as root:
+        root = Path(root)
+        data = root / "data"
+        data.mkdir()
+        model = data / "models" / m["MODEL"]
+        outside = root / "outside"
+        populate_model(outside, content=b"outside data")
+        if kind == "models-parent":
+            (data / "models").symlink_to(outside, target_is_directory=True)
+        elif kind == "model-root":
+            model.parent.mkdir()
+            model.symlink_to(outside, target_is_directory=True)
+        else:
+            populate_model(model)
+            (model / "bpe.model").unlink()
+            if kind == "required-file":
+                (model / "bpe.model").symlink_to(outside / "bpe.model")
+            else:
+                os.mkfifo(model / "bpe.model")
+        archive, digest = fixture_archive(root)
+        try:
+            local_setup(data, archive, digest)
+            raise AssertionError("Unsafe model state accepted: " + kind)
+        except RuntimeError as error:
+            assert "Unsafe wake model" in str(error), error
+        assert all((outside / name).read_bytes() == b"outside data" for name in model_files)
 `);

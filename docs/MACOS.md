@@ -89,6 +89,11 @@ the phrase. Check the displayed permission or interpreter error if setup cannot
 start. Device and wake changes during a busy call follow the app's existing live
 configuration rules.
 
+If installation was interrupted, run **Install or check wake-word support** again.
+Setup checks for missing or empty required model files and repairs an incomplete
+model from the pinned, checksum-verified archive. It does not detect arbitrary
+byte corruption in existing nonempty files.
+
 When enabled, wake continues listening locally during calls even if transmission
 to the dot is muted. The wake phrase can re-enable microphone and speakers. Turn
 wake off and save if you do not want local listening. See [Privacy](PRIVACY.md).
@@ -170,17 +175,37 @@ npm run demo
 npm run package:macos
 ```
 
+Native verification also needs Python 3.10–3.13. Before running
+`node scripts/verify-macos-package.cjs`, follow the
+[native acceptance commands](TESTING.md#native-macos-acceptance) to prepare the
+speech fixtures. They clone Flite with `--no-checkout`, check out exact commit
+`6c9f20dc915b17f5619340069889db0aa007fcdc`, then run
+`scripts/prepare-wake-speech.py` with absolute source and new output directories.
+The verifier reads `build/qa-wake-speech` by default; use
+`DOTDIAL_WAKE_SPEECH_FIXTURES` for an alternate prepared directory. Flite and its
+bundled `slt` voice are built privately for tests, without extra voice downloads
+or a system install. They are not included as a text-to-speech feature in the app.
+
 The packaging script uses the pinned Electron/Packager dependencies, native
 `codesign`, `ditto` and `hdiutil`. It refuses Linux cross-packaging and an architecture
 that does not match the build host. The normal `npm run package` dispatches to the
 host platform; the Linux packaging path remains available on Linux.
 
-Native CI checks both architectures, executable metadata, signatures, archive
+Native CI is configured for both architectures. Its required gates inspect the
+native target slice of every bundled Mach-O file for a deployment minimum no
+higher than macOS 13.0, and check the signed identities and entitlements of the
+main app, generic helper and configuration-lock helper. Other gates cover archive
 contents, bundled CLI without system Node, local synthetic GUI and media behavior,
-the native wake decoder and complete PCM pipeline, and the DMG contents. The small
-QA artifact contains the corresponding results. The [testing guide](TESTING.md)
-describes each required stage, the isolated Linux runner and the limits of its
-synthetic audio checks.
+the native wake decoder, PCM pipeline, generated-speech recognition and DMG
+contents. The speech gate uses **Hey Dot.**, unrelated speech and a different
+configured phrase at sensitivity 6. See the [testing guide](TESTING.md) for exact
+cases, stage names, preparation commands and report locations.
+
+These are acceptance requirements, not a claim that a particular revision has
+passed them. Consult the complete native QA report for the revision you download.
+Binary deployment metadata does not establish an actual Ventura runtime test;
+valid signed entitlements do not establish a TCC permission grant, Developer ID
+signing or notarization.
 Synthetic checks do not establish that real ChatGPT authentication, a microphone
 permission prompt, physical audio hardware or Login Items will work on every Mac.
 Before a public release, test those with an actual user session on the minimum

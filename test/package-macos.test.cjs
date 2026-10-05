@@ -8,9 +8,64 @@ const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const test = require('node:test');
 const { validateBuild, appFileFilter, artifactStem, buildManifest, signingOptions, prepareAppSource, BUNDLE_ID } = require('../scripts/package-macos.cjs');
-const { runRequiredStages, parseJsonLine } = require('../scripts/verify-macos-package.cjs');
+const { runRequiredStages, parseJsonLine, verifyArtifactChecksums, verifySpeechFixtures } = require('../scripts/verify-macos-package.cjs');
+const { createHash } = require('node:crypto');
 const pkg = { name: 'dotdial', productName: 'DotDial', version: '0.1.0-beta.2', devDependencies: { electron: '44.5.1', '@electron/packager': '20.3.0' } };
 const sha = 'a'.repeat(40);
+
+test('artifact checksums reject duplicate substitution, missing files, unsafe names and altered bytes', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-checksums-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const files = ['preview.app.zip', 'preview.dmg', 'preview.manifest.json'];
+  const digest = value => createHash('sha256').update(value).digest('hex');
+  for (const file of files) fs.writeFileSync(path.join(directory, file), file);
+  const rows = files.map(file => `${digest(file)}  ${file}`);
+  const write = entries => fs.writeFileSync(path.join(directory, 'SHA256SUMS'), entries.join('\n') + '\n');
+  const verify = () => verifyArtifactChecksums(directory, files.map(file => path.join(directory, file)));
+  write([...rows].reverse());
+  assert.equal((await verify()).length, 3, 'order does not change the exact set');
+  for (const invalid of [[rows[2], rows[2], rows[2]], rows.slice(1), [...rows, rows[0]],
+    [rows[0], rows[1], `${digest('other')}  other.json`]]) {
+    write(invalid);
+    await assert.rejects(verify, /each expected artifact exactly once/);
+  }
+  write([rows[0], rows[1], `${digest('other')}  ../other.json`]);
+  await assert.rejects(verify, /bounded artifact basenames/);
+  write(rows);
+  fs.writeFileSync(path.join(directory, files[0]), 'altered installer');
+  await assert.rejects(verify, /SHA-256 mismatch/);
+});
+
+test('speech fixture provenance binds exact source, native architecture, phrases and WAV bytes', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dotdial-speech-provenance-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const provenance = { prepareWakeSpeech: 'passed', success: true, sourceRepository: 'https://github.com/festvox/flite',
+    sourceCommit: '6c9f20dc915b17f5619340069889db0aa007fcdc', sourceCleanBeforeBuild: true,
+    generator: 'Flite', voice: 'slt', hostPlatform: 'darwin', hostMachine: 'arm64', fixtures: {} };
+  for (const [name, text] of [['positive', 'Hey Dot.'], ['negative', 'The weather is calm today.']]) {
+    // WAV format validation belongs to the real smoke; this gate binds the
+    // caller's rendered bytes to the generator's separately recorded output.
+    const bytes = Buffer.from(`fixture bytes: ${text}`);
+    fs.writeFileSync(path.join(directory, `${name}.wav`), bytes);
+    provenance.fixtures[name] = { text, voice: 'slt', sampleRate: 16000, channels: 1,
+      sampleFormat: 'pcm16le', sha256: createHash('sha256').update(bytes).digest('hex') };
+  }
+  const write = value => fs.writeFileSync(path.join(directory, 'provenance.json'), JSON.stringify(value));
+  write(provenance);
+  assert.deepEqual(await verifySpeechFixtures(directory, 'arm64'), provenance);
+  await assert.rejects(() => verifySpeechFixtures(directory, 'x64'));
+  for (const override of [{ success: false }, { sourceCommit: 'a'.repeat(40) }, { sourceCleanBeforeBuild: false },
+    { hostPlatform: 'linux' }, { voice: 'unknown' }]) {
+    write({ ...provenance, ...override });
+    await assert.rejects(() => verifySpeechFixtures(directory, 'arm64'));
+  }
+  write({ ...provenance, fixtures: { ...provenance.fixtures,
+    positive: { ...provenance.fixtures.positive, text: 'Another phrase.' } } });
+  await assert.rejects(() => verifySpeechFixtures(directory, 'arm64'), /exact synthetic speech text/);
+  write(provenance);
+  fs.writeFileSync(path.join(directory, 'positive.wav'), 'substituted speech');
+  await assert.rejects(() => verifySpeechFixtures(directory, 'arm64'), /rendered speech agrees with its provenance/);
+});
 
 test('smoke report parsing rejects contradictory or duplicate reports', () => {
   assert.deepEqual(parseJsonLine('Chromium log\nnull\n{"packagedSmoke":"passed"}\n', 'packagedSmoke'), { packagedSmoke: 'passed' });

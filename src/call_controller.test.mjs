@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CallController } from "./call_controller.mjs";
+import { CallAudioControls } from './call_audio_controls.mjs';
 import { DotVoiceSession } from './dot_voice.mjs';
 import { createRequire } from 'node:module';
 const { presentState } = createRequire(import.meta.url)('./desktop.cjs');
@@ -14,6 +15,166 @@ function deferred() {
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
   return { promise, resolve, reject };
 }
+
+function microphoneIntentFixture() {
+  const requests = [], stops = [], handleStops = [];
+  const controller = new CallController({ publish() {} });
+  controller.state = 'active';
+  controller.peer = {
+    microphoneSettings: { sampleRate: 48000 },
+    startMicrophone() {
+      const request = deferred();
+      // Production handles stop the entire peer's current microphone, not
+      // the individual track whose acquisition returned this handle.
+      request.capture = { stop() { handleStops.push(request); } };
+      requests.push(request);
+      return request.promise;
+    },
+    stopMicrophone() { const request = deferred(); stops.push(request); return request.promise; },
+  };
+  const controls = new CallAudioControls({ controller,
+    mailbox: { playing: false, changing: false, desiredMuted: false } });
+  return { controller, controls, requests, stops, handleStops };
+}
+
+test('direct microphone mute cancels unresolved unmute before its late success', async () => {
+  const h = microphoneIntentFixture();
+  assert.equal(h.controls.microphone(true).status, 'unmuting_microphone');
+  const enabling = h.controller.microphonePending;
+  assert.equal(h.controls.microphone(false).status, 'muting_microphone');
+  assert.equal(h.stops.length, 1, 'cancel must reach the peer before acquisition resolves');
+  const muting = h.controller.microphonePending;
+  h.stops[0].resolve(); await muting;
+  h.requests[0].resolve(h.requests[0].capture); await enabling;
+  assert.equal(h.controller.capture, null);
+  assert.equal(h.controller.snapshot().microphone_muted, true);
+  assert.equal(h.controller.microphonePending, null);
+  assert.equal(h.controller.metrics.microphone_error, undefined);
+});
+
+for (const outcome of ['success', 'rejection']) {
+  for (const order of ['before', 'after']) {
+    test(`microphone cancellation: stale ${outcome} ${order} replacement cannot override the newest unmute`, async () => {
+      const h = microphoneIntentFixture();
+      h.controls.microphone(true);
+      const obsolete = h.controller.microphonePending;
+      assert.equal(h.controls.microphone(false).status, 'muting_microphone');
+      assert.equal(h.stops.length, 1);
+      assert.equal(h.controls.microphone(true).status, 'unmuting_microphone');
+      const current = h.controller.microphonePending;
+      assert.equal(h.requests.length, 1, 'replacement waits for the preceding stop to finish');
+      h.stops[0].resolve();
+      await waitFor(() => h.requests.length === 2, 'replacement microphone acquisition');
+      const finishObsolete = async () => {
+        if (outcome === 'success') h.requests[0].resolve(h.requests[0].capture);
+        else h.requests[0].reject(Error('obsolete acquisition failed'));
+        await obsolete;
+      };
+      if (order === 'before') {
+        await finishObsolete();
+        assert.equal(h.controller.microphonePending, current, 'stale finally cannot clear the current pending request');
+        assert.equal(h.controller.snapshot().microphone_changing, true);
+      }
+      h.requests[1].resolve(h.requests[1].capture); await current;
+      if (order === 'after') await finishObsolete();
+      assert.equal(h.controller.capture, h.requests[1].capture);
+      assert.equal(h.controller.snapshot().microphone_muted, false);
+      assert.equal(h.controller.microphonePending, null);
+      assert.equal(h.controller.metrics.microphone_error, undefined);
+      assert.equal(h.handleStops.length, 0, 'a stale peer-wide stop must not disable the replacement microphone');
+    });
+  }
+}
+
+test('authoritative ended-microphone stats keep the call alive and allow explicit reacquisition', async () => {
+  const h = microphoneIntentFixture();
+  const peer = h.controller.peer;
+  const session = h.controller.session = { callId: 'fixture-active-call' };
+  h.controls.microphone(true);
+  h.requests[0].resolve(h.requests[0].capture);
+  await h.controller.microphonePending;
+  const stats = deferred();
+  peer.getStats = () => stats.promise;
+  const measuring = h.controller.measure();
+  stats.resolve({ connection_state: 'connected', microphone_active: false,
+    microphone_error: 'microphone_ended', packetsReceived: 120, speaker_muted: false });
+  await measuring;
+  assert.equal(h.controller.state, 'active');
+  assert.equal(h.controller.session, session);
+  assert.equal(h.controller.peer, peer);
+  assert.equal(h.controller.capture, null);
+  assert.equal(h.controller.snapshot().microphone_muted, true);
+  assert.equal(h.controller.metrics.microphone_error, 'microphone_ended');
+  assert.equal(h.controller.metrics.last_error, undefined, 'a lost microphone is not a fatal call error');
+  assert.equal(h.controller.metrics.media.speaker_muted, false);
+  assert.equal(h.controller.metrics.remote_audio_frames, 120);
+  assert.equal(h.stops.length, 0, 'the renderer has already released the ended track');
+  assert.equal(h.handleStops.length, 0);
+  assert.equal(h.controls.microphone(true).status, 'unmuting_microphone');
+  assert.equal(h.requests.length, 2, 'unmute must reacquire instead of reporting microphone_on');
+  h.requests[1].resolve(h.requests[1].capture);
+  await h.controller.microphonePending;
+  assert.equal(h.controller.capture, h.requests[1].capture);
+  assert.equal(h.controller.snapshot().microphone_muted, false);
+  assert.equal(h.controller.metrics.microphone_error, undefined);
+  assert.equal(h.controller.metrics.media.microphone_error, null);
+});
+
+for (const replacementPending of [false, true]) {
+  test(`stale ended-microphone stats cannot override a ${replacementPending ? 'pending' : 'completed'} replacement`, async () => {
+    const h = microphoneIntentFixture();
+    h.controls.microphone(true);
+    h.requests[0].resolve(h.requests[0].capture);
+    await h.controller.microphonePending;
+    const stats = deferred();
+    h.controller.peer.getStats = () => stats.promise;
+    const measuring = h.controller.measure();
+    h.controls.microphone(false);
+    h.stops[0].resolve();
+    await h.controller.microphonePending;
+    h.controls.microphone(true);
+    const enabling = h.controller.microphonePending;
+    if (!replacementPending) {
+      h.requests[1].resolve(h.requests[1].capture);
+      await enabling;
+    }
+    stats.resolve({ connection_state: 'connected', microphone_active: false,
+      microphone_error: 'microphone_ended', packetsReceived: 42 });
+    await measuring;
+    assert.equal(h.controller.metrics.microphone_error, undefined);
+    assert.equal(h.controller.metrics.media.microphone_error, null);
+    assert.equal(h.controller.metrics.media.microphone_active, !replacementPending);
+    assert.equal(h.controller.metrics.remote_audio_frames, 42, 'unrelated media stats remain useful');
+    if (replacementPending) {
+      assert.equal(h.controller.microphonePending, enabling);
+      h.requests[1].resolve(h.requests[1].capture);
+      await enabling;
+    }
+    assert.equal(h.controller.state, 'active');
+    assert.equal(h.controller.capture, h.requests[1].capture);
+    assert.equal(h.controller.snapshot().microphone_muted, false);
+    assert.equal(h.handleStops.length, 0);
+  });
+}
+
+test('stats during an intentional microphone stop do not report unexpected hardware loss', async () => {
+  const h = microphoneIntentFixture();
+  h.controls.microphone(true);
+  h.requests[0].resolve(h.requests[0].capture);
+  await h.controller.microphonePending;
+  h.controls.microphone(false);
+  const stats = deferred();
+  h.controller.peer.getStats = () => stats.promise;
+  const measuring = h.controller.measure();
+  stats.resolve({ connection_state: 'connected', microphone_active: false, microphone_error: null });
+  await measuring;
+  assert.equal(h.controller.capture, h.requests[0].capture, 'only the pending stop owns this transition');
+  assert.equal(h.controller.metrics.microphone_error, undefined);
+  h.stops[0].resolve();
+  await h.controller.microphonePending;
+  assert.equal(h.controller.capture, null);
+  assert.equal(h.controller.metrics.microphone_error, undefined);
+});
 
 function harness(options = {}) {
   let journal = options.initialJournal ? { ...options.initialJournal } : { phase: "closed" };
